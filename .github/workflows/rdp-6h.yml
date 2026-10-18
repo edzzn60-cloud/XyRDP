@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       durasi_menit:
-        description: 'Durasi sesi (menit, 10–560)'
+        description: 'Durasi sesi (menit, 10–1080)'
         required: false
-        default: '560'
+        default: '1080'
         type: string
       hostname:
         description: 'Prefix hostname VM'
