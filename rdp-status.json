@@ -1,0 +1,50 @@
+{
+  "active": false,
+  "hostname": "rdpfree-9",
+  "os": "Ubuntu 22.04.5 LTS (XFCE4 Desktop)",
+  "os_style": "Linux XFCE4 Desktop",
+  "linux_mode": "desktop",
+  "rdp_port": 3389,
+  "ssh_port": 22,
+  "rdp_user": "xyadmin",
+  "rdp_listen": "LISTENING :3389 (xrdp) + :22 (ssh)",
+  "started_at": "2026-10-21T09:21:52Z",
+  "expires_at": "2026-10-21T15:03:52Z",
+  "heartbeat_at": "2026-10-21T09:31:22Z",
+  "duration_menit": 342,
+  "run_id": "39576098078",
+  "run_attempt": "1",
+  "run_number": "9",
+  "run_url": "https://github.com/edzzn60-cloud/XyRDP/actions/runs/39576098078",
+  "hardware": {
+    "cpu_threads": 4,
+    "cpu_cores": 4,
+    "cpu_load_pct": 5,
+    "ram_gb": 15.6,
+    "ram_total_gb": 15.6,
+    "ram_used_gb": 1,
+    "disk_total_gb": 146,
+    "disk_free_gb": 84,
+    "disk_used_gb": 62,
+    "uptime_minutes": 9
+  },
+  "akses": {
+    "mode": "tailscale",
+    "tailscale": {
+      "status": "ok",
+      "ip": "100.89.184.41",
+      "hostname": "rdpfree-9",
+      "port": 3389,
+      "ssh_port": 22,
+      "connect": "100.89.184.41:3389"
+    },
+    "tunnel": {
+      "status": "ok",
+      "type": "tailscale",
+      "host": "100.89.184.41",
+      "port": 3389,
+      "address": "100.89.184.41:3389",
+      "connect": "100.89.184.41:3389"
+    }
+  }
+}
