@@ -1,50 +1,42 @@
 {
-  "active": false,
-  "hostname": "rdpfree-9",
-  "os": "Ubuntu 22.04.5 LTS (XFCE4 Desktop)",
-  "os_style": "Linux XFCE4 Desktop",
-  "linux_mode": "desktop",
-  "rdp_port": 3389,
-  "ssh_port": 22,
-  "rdp_user": "xyadmin",
-  "rdp_listen": "LISTENING :3389 (xrdp) + :22 (ssh)",
-  "started_at": "2026-10-21T09:21:52Z",
-  "expires_at": "2026-10-21T15:03:52Z",
-  "heartbeat_at": "2026-10-21T09:31:22Z",
-  "duration_menit": 342,
-  "run_id": "39576098078",
-  "run_attempt": "1",
-  "run_number": "9",
-  "run_url": "https://github.com/edzzn60-cloud/XyRDP/actions/runs/39576098078",
+  "active": true,
+  "hostname": "rdpfree-10",
+  "os": "Microsoft Windows Server 2022 Datacenter",
+  "os_build": "10.0.20348",
+  "os_style": "Native Windows",
   "hardware": {
+    "ram_gb": 16.0,
     "cpu_threads": 4,
-    "cpu_cores": 4,
-    "cpu_load_pct": 5,
-    "ram_gb": 15.6,
-    "ram_total_gb": 15.6,
-    "ram_used_gb": 1,
-    "disk_total_gb": 146,
-    "disk_free_gb": 84,
-    "disk_used_gb": 62,
-    "uptime_minutes": 9
+    "disk_free_gb": 82.5
   },
+  "rdp_port": 3389,
+  "rdp_user": "xyadmin",
+  "rdp_listen": ":::3389 (svchost) | 0.0.0.0:3389 (svchost) + handshake ok via 127.0.0.1",
+  "rdp_denyts": true,
+  "started_at": "2026-10-21T13:53:17Z",
+  "expires_at": "2026-10-21T19:35:17Z",
+  "duration_menit": 342,
+  "run_id": "39611871555",
+  "run_attempt": "1",
+  "run_number": "10",
+  "run_url": "https://github.com/edzzn60-cloud/XyRDP/actions/runs/39611871555",
+  "mode": "bersih+win10",
   "akses": {
-    "mode": "tailscale",
+    "tunnel": {
+      "address": "100.92.49.124:3389",
+      "status": "ok",
+      "host": "100.92.49.124",
+      "port": 3389,
+      "outside": "tailscale",
+      "selftest": "ok"
+    },
     "tailscale": {
       "status": "ok",
-      "ip": "100.89.184.41",
-      "hostname": "rdpfree-9",
-      "port": 3389,
-      "ssh_port": 22,
-      "connect": "100.89.184.41:3389"
+      "note": "HP/PC harus login Tailscale pada tailnet yang sama. TCP 3389 harus diizinkan ACL.",
+      "hostname": "rdpfree-10",
+      "magicdns": "rdpfree-10.tail85b74c.ts.net.",
+      "ip": "100.92.49.124"
     },
-    "tunnel": {
-      "status": "ok",
-      "type": "tailscale",
-      "host": "100.89.184.41",
-      "port": 3389,
-      "address": "100.89.184.41:3389",
-      "connect": "100.89.184.41:3389"
-    }
+    "mode": "tailscale"
   }
 }
