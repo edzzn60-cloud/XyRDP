@@ -1,133 +1,42 @@
 {
   "active": true,
-  "hostname": "rdpfree-18",
+  "hostname": "rdpfree-19",
   "os": "Microsoft Windows Server 2022 Datacenter",
   "os_build": "10.0.20348",
   "os_style": "Native Windows",
   "hardware": {
-    "disk_free_gb": 81.7,
     "ram_gb": 16.0,
-    "cpu_threads": 4
+    "cpu_threads": 4,
+    "disk_free_gb": 81.7
   },
   "rdp_port": 3389,
   "rdp_user": "xyadmin",
   "rdp_listen": ":::3389 (svchost) | 0.0.0.0:3389 (svchost) + handshake ok via 127.0.0.1",
   "rdp_denyts": true,
-  "started_at": "2026-10-24T23:57:44Z",
-  "expires_at": "2026-10-25T05:39:44Z",
+  "started_at": "2026-10-25T05:38:43Z",
+  "expires_at": "2026-10-25T11:20:43Z",
   "duration_menit": 342,
-  "run_id": "40144770133",
+  "run_id": "40166250534",
   "run_attempt": "1",
-  "run_number": "18",
-  "run_url": "https://github.com/edzzn60-cloud/XyRDP/actions/runs/40144770133",
+  "run_number": "19",
+  "run_url": "https://github.com/edzzn60-cloud/XyRDP/actions/runs/40166250534",
   "mode": "bersih+win10",
   "akses": {
-    "tailscale": {
-      "status": "ok",
-      "note": "HP/PC harus login Tailscale pada tailnet yang sama. TCP 3389 harus diizinkan ACL.",
-      "magicdns": "rdpfree-18.tail85b74c.ts.net.",
-      "ip": "100.99.158.0",
-      "hostname": "rdpfree-18"
-    },
+    "mode": "tailscale",
     "tunnel": {
-      "outside": "tailscale",
-      "port": 3389,
-      "address": "100.99.158.0:3389",
-      "status": "ok",
       "selftest": "ok",
-      "host": "100.99.158.0"
+      "host": "100.99.158.0",
+      "port": 3389,
+      "outside": "tailscale",
+      "address": "100.99.158.0:3389",
+      "status": "ok"
     },
-    "mode": "tailscale"
-  },
-  "win10": {
-    "look": "ok",
-    "badge": "ok",
-    "wallpaper": "ok",
-    "search": "ok",
-    "os": "Microsoft Windows Server 2022 Datacenter",
-    "note": "Tampilan Windows 10 (UI Windows Server 2022 = kernel/UI Windows 10 21H2)"
-  },
-  "media": {
-    "verification": "Login ulang, aktifkan mic di XyDesk dan izinkan Android. Uji Windows Settings > Sound > Input; kebijakan aktif bukan bukti capture end-to-end.",
-    "audio_output": "rdp_playback_enabled",
-    "microphone": "rdp_capture_enabled",
-    "wallpaper": "xyverse_configured_for_user_logon"
-  },
-  "xydesk": {
-    "host": "ok",
-    "denyts": "ok",
-    "multisession": "ok",
-    "avc444": "ok (120FPS DWMFRAMEINTERVAL=8 + TCPNoDelay=1)",
-    "fontsmoothing": "ok (ClearType profil Default)",
-    "audio_out": "ok (policy fDisableAudio=0, WinStations=0)",
-    "audio_mic": "ok (policy fDisableAudioCapture=0, WinStations=0) - mic HP redirect aktif, Allow di HP",
-    "wallpaper_rdp": "ok (policy fNoRemoteDesktopWallpaper=0) - wallpaper RDP tampil, cek client Experience→Wallpaper ON",
-    "firewall": "tcp3389=True udp3389=True udp4433=True",
-    "services": "ok",
-    "rdp_ready": "127.0.0.1 (handshake OK)",
-    "rdp_probe": "awal=True multi=True audio=True grafis=True clear=True fw=True svc=True",
-    "quic_udp4433": "dibuka di VM (tidak lewat tunnel TCP)",
-    "akses": "(menyusul)",
-    "note": "Host siap dipakai klien XyDesk Remote mode Koneksi RDP (Host+Port tunnel). Kunci WinStations\\RDP-Tcp sengaja TIDAK ditulis supaya listener 3389 tidak mati di runner GitHub."
-  },
-  "grafis": {
-    "mode": "mesa-d3d12-opengl46",
-    "path": "C:\\XyRDP\\grafis\\mesa-x64"
-  },
-  "samp": {
-    "windowed_mode": true,
-    "directplay": true,
-    "silentpatch": true,
-    "samp_client": true,
-    "dgvoodoo_d3d9": true,
-    "status": "runtimes-2026-ready",
-    "vc2013_x64": true,
-    "dep_optin": true,
-    "vc2013_x86": true,
-    "vc2015_x86": true,
-    "vc2015_x64": true,
-    "directx9": true,
-    "webview2": true
-  },
-  "games": {
-    "roblox": "installer-staged",
-    "minecraft_java_runtime": {
-      "prismlauncher": true,
-      "java8": true,
-      "opengl46": true,
-      "java21": true
-    },
-    "minecraft_java": "installed-with-opengl46"
-  },
-  "extras": {
-    "lightshot": "ok",
-    "wallpaper": "ok",
-    "wallpaper_file": "wallpaper.jpg",
-    "vscode": "skip",
-    "notepadpp": "skip",
-    "admin": true
-  },
-  "storage": {
-    "boost": "ok",
-    "before_gb": 77.69,
-    "after_gb": 101.97,
-    "gained_gb": 24.28,
-    "removed_targets": 19,
-    "drives": [
-      {
-        "letter": "C",
-        "used_gb": 153.47,
-        "free_gb": 101.97,
-        "size_gb": 255.45
-      },
-      {
-        "letter": "D",
-        "used_gb": 3.0,
-        "free_gb": 146.99,
-        "size_gb": 150.0
-      }
-    ],
-    "game_dir": "D:\\Games (disarankan untuk GTA)",
-    "note": "Cleanup selesai. gained_gb adalah perubahan ruang aktual, bukan kapasitas yang dijanjikan. Target terkunci bisa tersisa."
+    "tailscale": {
+      "hostname": "rdpfree-19",
+      "magicdns": "rdpfree-19.tail85b74c.ts.net.",
+      "ip": "100.99.158.0",
+      "note": "HP/PC harus login Tailscale pada tailnet yang sama. TCP 3389 harus diizinkan ACL.",
+      "status": "ok"
+    }
   }
 }
