@@ -1,5 +1,5 @@
 # ============================================================================
-#  optimize-storage.ps1 — BOOST PENYIMPANAN XyRDP-SAMP
+#  optimize-storage.ps1 - BOOST PENYIMPANAN XyRDP-SAMP
 # ----------------------------------------------------------------------------
 #  Masalah: Runner windows-2022 terlihat "Disk C: 225 GB" tapi free cuma ~70GB
 #  karena image GitHub sudah penuh toolcache (Android, Haskell, CodeQL,
@@ -22,7 +22,7 @@
 #   10) Temp + Log + Recycle Bin + Delivery Optimization
 #
 #  Catatan: JANGAN hapus C:\Windows\WinSxS dengan DISM agresif di runner
-#  ephemeral 6 jam — bisa merusak RDP/Win32. Kita hanya hapus cache & sdk
+#  ephemeral 6 jam - bisa merusak RDP/Win32. Kita hanya hapus cache & sdk
 #  yang aman.
 #
 #  Env:
@@ -48,7 +48,7 @@ if (-not $boost) {
   exit 0
 }
 
-Log '=== OPTIMIZE STORAGE — mulai bebaskan ruang ==='
+Log '=== OPTIMIZE STORAGE - mulai bebaskan ruang ==='
 
 function Get-FreeGB {
   try {
@@ -59,7 +59,7 @@ function Get-FreeGB {
   }
 }
 function Get-SizeGB([string]$path) {
-  # FAST: jangan hitung rekursif (bikin stuck 10 menit di C:\Android) — return 0 biar Remove-Tree langsung hapus
+  # FAST: jangan hitung rekursif (bikin stuck 10 menit di C:\Android) - return 0 biar Remove-Tree langsung hapus
   return 0
 }
 function Remove-Tree([string]$path, [string]$label) {
@@ -104,6 +104,29 @@ Log "  Free C: sebelum : ${freeBefore} GB"
 $script:BoostStart = Get-Date
 function Test-BoostTimeout { return ((Get-Date) - $script:BoostStart).TotalMinutes -gt 8 }
 
+# Jalankan perintah eksternal dengan batas waktu + log detak tiap 15 detik.
+# Mencegah satu perintah sunyi (mis. docker prune) menggantung step belasan
+# menit tanpa output -> di GitHub App terlihat "loading" kosong.
+function Invoke-WithTimeout([scriptblock]$Block, [int]$TimeoutSec, [string]$Label) {
+  $job = Start-Job -ScriptBlock $Block
+  $elapsed = 0
+  try {
+    while ($elapsed -lt $TimeoutSec) {
+      if (Wait-Job $job -Timeout 15) { break }
+      $elapsed += 15
+      if ($job.State -eq 'Running') { Log "  $Label masih berjalan... ${elapsed}s (batas ${TimeoutSec}s)" }
+    }
+    if ($job.State -eq 'Running') {
+      Stop-Job $job -ErrorAction SilentlyContinue
+      Log "  $Label melebihi ${TimeoutSec}s -> dihentikan, lanjut (best-effort)"
+    } else {
+      Log "  $Label selesai dalam ~${elapsed}s"
+    }
+    Receive-Job $job -ErrorAction SilentlyContinue | Out-Null
+  } catch { Log "  $Label error: $($_.Exception.Message)" }
+  finally { Remove-Job $job -Force -ErrorAction SilentlyContinue }
+}
+
 try {
   $vd = Get-CimInstance Win32_LogicalDisk | ForEach-Object { "$($_.DeviceID) $([math]::Round($_.Size/1GB))GB total / $([math]::Round($_.FreeSpace/1GB))GB free" }
   Log "  Disk layout : $($vd -join ' | ')"
@@ -126,10 +149,11 @@ $totalFreed += Remove-Tree 'C:\Program Files\Unity' 'Unity Editor'
 $totalFreed += Remove-Tree 'C:\hostedtoolcache\windows\R' 'R language'
 $totalFreed += Remove-Tree 'C:\Program Files\R' 'R Program Files'
 $totalFreed += Remove-Tree 'C:\R' 'R root'
-try { & winget uninstall --id Unity.UnityHub --exact --silent --accept-source-agreements 2>&1 | Out-Null } catch {}
-try { & winget uninstall --id RProject.R --exact --silent 2>&1 | Out-Null } catch {}
-try { & choco uninstall unityhub -y --no-progress 2>&1 | Out-Null } catch {}
-try { & choco uninstall r.project -y --no-progress 2>&1 | Out-Null } catch {}
+Log '  uninstall Unity Hub / R (winget/choco, best-effort)...'
+Invoke-WithTimeout { winget uninstall --id Unity.UnityHub --exact --silent --accept-source-agreements 2>&1 | Out-Null } 60 'winget UnityHub'
+Invoke-WithTimeout { winget uninstall --id RProject.R --exact --silent 2>&1 | Out-Null } 60 'winget R'
+Invoke-WithTimeout { choco uninstall unityhub -y --no-progress 2>&1 | Out-Null } 60 'choco unityhub'
+Invoke-WithTimeout { choco uninstall r.project -y --no-progress 2>&1 | Out-Null } 60 'choco r.project'
 # Hapus versi Node/Python/Go lama kecuali yang sedang dipakai runner sekarang
 # Kita SIMPAN folder yang sedang aktif (cek PATH), hapus sisanya lebih aman
 # Strategi: hapus semua hostedtoolcache kecuali folder yang baru dipakai? Lebih simple: hapus Android & Haskell saja yang paling besar & tidak dibutuhkan buat SAMP.
@@ -146,7 +170,7 @@ if (Test-BoostTimeout) { Log '  boost timeout -> skip dotnet' } else { try {
     $sdks = Get-ChildItem $dotnetRoot -Directory | Sort-Object Name -Descending
     if ($sdks.Count -gt 1) {
       $keep = $sdks[0]
-      Log "  dotnet SDK keep: $($keep.Name) — hapus $($sdks.Count-1) versi lama"
+      Log "  dotnet SDK keep: $($keep.Name) - hapus $($sdks.Count-1) versi lama"
       foreach ($s in $sdks | Select-Object -Skip 1) {
         $totalFreed += Remove-Tree $s.FullName "dotnet SDK $($s.Name)"
       }
@@ -155,14 +179,60 @@ if (Test-BoostTimeout) { Log '  boost timeout -> skip dotnet' } else { try {
 } catch { Log "  dotnet SDK cleanup gagal: $($_.Exception.Message)" } }
 
 # Docker
+# DULU: `docker system prune` bisa 12+ menit sunyi total (output dibuang,
+# demon lambat) -> step terlihat kosong/loading di GitHub App sampai user
+# cancel sesi. SEKARANG: cek demon dgn timeout, prune dibatasi 120 detik,
+# ada log detak tiap 15 detik, lewat batas -> dilewati (best-effort).
 try {
   $docker = Get-Command docker -ErrorAction SilentlyContinue
   if ($docker) {
-    Log '  Docker: prune images...'
-    & docker system prune -a -f 2>&1 | Out-Null
-    & docker builder prune -a -f 2>&1 | Out-Null
+    $daemonJob = Start-Job -ScriptBlock { docker version --format '{{.Server.Version}}' 2>&1 }
+    $daemonOk = $false
+    if (Wait-Job $daemonJob -Timeout 20) {
+      $dOut = (Receive-Job $daemonJob -ErrorAction SilentlyContinue | Out-String).Trim()
+      $daemonOk = ($dOut -match '\d+\.\d+' -and $dOut -notmatch 'error|cannot|failed')
+      if (-not $daemonOk) { Log '  Docker: demon tidak siap -> prune dilewati' }
+    }
+    else { Stop-Job $daemonJob -ErrorAction SilentlyContinue; Log '  Docker: demon tidak merespons 20s -> prune dilewati' }
+    Remove-Job $daemonJob -Force -ErrorAction SilentlyContinue
+    if ($daemonOk) {
+      Log '  Docker: prune images (maks 120s)...'
+      Invoke-WithTimeout { docker system prune -a -f 2>&1 | Out-Null; docker builder prune -a -f 2>&1 | Out-Null } 120 'Docker prune'
+    }
+  } else { Log '  Docker: tidak terpasang -> skip' }
+} catch { Log "  Docker prune error: $($_.Exception.Message)" }
+
+# ---------- 2b. Target tambahan (1.1.28) ----------
+# Dulu beberapa folder besar masih tersisa walau storage_boost=ya, jadi
+# angka "disk lega" di aplikasi sering jauh lebih kecil dari janji UI.
+# Semuanya best-effort dan tunduk pada batas waktu 8 menit yang sama.
+if (-not (Test-BoostTimeout)) {
+  $extraTargets = @(
+    @{ p = 'C:\hostedtoolcache\windows\Ruby'; n = 'Ruby toolcache' },
+    @{ p = 'C:\hostedtoolcache\windows\Python'; n = 'Python toolcache' },
+    @{ p = 'C:\hostedtoolcache\windows\node'; n = 'Node toolcache' },
+    @{ p = 'C:\Program Files (x86)\Microsoft SDKs'; n = 'Windows SDK lama' },
+    @{ p = 'C:\Program Files (x86)\Windows Kits\10\References'; n = 'Win10 SDK references' },
+    @{ p = 'C:\ProgramData\Microsoft\VisualStudio\Packages'; n = 'Visual Studio package cache' },
+    @{ p = 'C:\Windows\Installer\$PatchCache$'; n = 'MSI PatchCache' },
+    @{ p = 'C:\Windows\SoftwareDistribution\Download'; n = 'Windows Update cache' },
+    @{ p = 'C:\Program Files\PostgreSQL'; n = 'PostgreSQL bawaan runner' },
+    @{ p = 'C:\Program Files\MongoDB'; n = 'MongoDB bawaan runner' },
+    @{ p = 'C:\tools\php'; n = 'PHP toolcache' },
+    @{ p = 'C:\SeleniumWebDrivers'; n = 'Selenium web drivers' }
+  )
+  foreach ($t in $extraTargets) {
+    if (Test-BoostTimeout) { Log '  boost timeout -> sisa target dilewati'; break }
+    $totalFreed += Remove-Tree $t.p $t.n
   }
-} catch {}
+  # Compact sisa file log & crash dump (aman, tidak menyentuh RDP/WinSxS).
+  foreach ($junk in @('C:\Windows\LiveKernelReports', 'C:\Windows\Minidump', 'C:\ProgramData\Microsoft\Windows\WER\ReportArchive')) {
+    if (Test-BoostTimeout) { break }
+    $totalFreed += Remove-Tree $junk "junk $junk"
+  }
+} else {
+  Log '  boost timeout -> target tambahan dilewati'
+}
 
 # ---------- 3. Chocolatey cache ----------
 $totalFreed += Remove-Tree 'C:\ProgramData\chocolatey\lib' 'Choco lib cache'
@@ -181,11 +251,11 @@ $totalFreed += Remove-Tree 'C:\Windows\SoftwareDistribution\Download' 'Windows U
 try { Get-ChildItem "$env:SystemRoot\Temp" -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Log '  Windows Temp dibersihkan tanpa menghapus folder/ACL' } catch {}
 try { if (Test-Path $env:TEMP) { Get-ChildItem $env:TEMP -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue; Log '  %TEMP% dibersihkan' } } catch {}
 try { if (Test-Path 'C:\Temp') { Remove-Tree 'C:\Temp' 'C:\Temp' | Out-Null } } catch {}
-# SKIP heavy DISM/cleanmgr (bikin stuck 5-10 menit di runner) — cukup log
-try { Log '  DISM/cleanmgr dilewati (fast mode) — biar tidak stuck' } catch {}
+# SKIP heavy DISM/cleanmgr (bikin stuck 5-10 menit di runner) - cukup log
+try { Log '  DISM/cleanmgr dilewati (fast mode) - biar tidak stuck' } catch {}
 try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue; Log '  RecycleBin dikosongkan' } catch {}
 
-# ---------- 5b. DEBLOAT — hapus app bawaan gede (Edge + OneDrive + Xbox dll) ----------
+# ---------- 5b. DEBLOAT - hapus app bawaan gede (Edge + OneDrive + Xbox dll) ----------
 # Env DEBLOAT: tidak / ringan / full (default FULL kalau STORAGE_BOOST=ya, user mau habisin semua)
 $debloat = if ($env:DEBLOAT) { $env:DEBLOAT.Trim().ToLower() } else { 'full' }
 if ($env:DEBLOAT -eq 'tidak' -or $env:DEBLOAT -eq '0' -or $env:DEBLOAT -eq 'false') { $debloat = 'tidak' }
@@ -205,20 +275,20 @@ if ($debloat -ne 'tidak') {
   }
   if (-not $chromeExists) { $cc = Get-Command chrome -ErrorAction SilentlyContinue; if ($cc) { $chromeExists = $true } }
 
-  # ringan: Appx bloat
+  # ringan: Appx bloat (PENTING: JANGAN hapus Microsoft.XboxIdentityProvider / Microsoft.XboxTcui / GamingServices karena dibutuhkan Minecraft!)
   $bloatAppx = @(
-    'Microsoft.OneDriveSync','Microsoft.Xbox*','Microsoft.XboxGamingOverlay','Microsoft.XboxGameCallableUI',
+    'Microsoft.OneDriveSync','Microsoft.XboxGamingOverlay','Microsoft.XboxSpeechToTextOverlay',
     'Microsoft.ZuneMusic','Microsoft.ZuneVideo','Microsoft.BingNews','Microsoft.BingWeather',
     'Microsoft.GetHelp','Microsoft.Getstarted','Microsoft.WindowsFeedbackHub','Microsoft.MicrosoftOfficeHub',
     'Microsoft.Office.OneNote','Microsoft.SkypeApp','Microsoft.MixedReality.Portal','Microsoft.People',
     'Microsoft.WindowsMaps','Microsoft.Microsoft3DViewer','Microsoft.Print3D','Microsoft.Wallet',
-    'Microsoft.MicrosoftSolitaireCollection','Microsoft.MSPaint','Clipchamp.Clipchamp'
+    'Microsoft.MicrosoftSolitaireCollection','Clipchamp.Clipchamp'
   )
-  # full tambahan Edge + Office hub — HABISIN SEMUA (Edge beneran dihapus paksa)
+  # full tambahan Edge + Office hub - HABISIN SEMUA (Edge beneran dihapus paksa)
   $tryEdge = ($debloat -eq 'full')
   if ($debloat -eq 'ringan' -and $chromeExists) { $tryEdge = $true }
   if ($tryEdge) {
-    Log "  Debloat EDGE: HABISIN $(if ($debloat -eq 'full') {'FULL paksa'} else {'ringan'}) — WebView2 dipertahankan"
+    Log "  Debloat EDGE: HABISIN $(if ($debloat -eq 'full') {'FULL paksa'} else {'ringan'}) - WebView2 dipertahankan"
     try {
       $edgePaths = @(
         'C:\Program Files (x86)\Microsoft\Edge\Application',
@@ -235,9 +305,9 @@ if ($debloat -ne 'tidak') {
       if ($edgeVer) { $edgeSize = Get-SizeGB $edgeVer }
       Log "  Edge terdeteksi: $edgeVer (~${edgeSize}GB)"
       if (-not $chromeExists -and $debloat -ne 'full') {
-        Log '  Chrome TIDAK ada — Edge TIDAK dihapus (biar browser tetap ada)'
+        Log '  Chrome TIDAK ada - Edge TIDAK dihapus (biar browser tetap ada)'
       } else {
-        if (-not $chromeExists) { Log '  Chrome tidak ada tapi FULL paksa — Edge tetap dihapus' }
+        if (-not $chromeExists) { Log '  Chrome tidak ada tapi FULL paksa - Edge tetap dihapus' }
         # coba winget dulu (paling bersih)
         $wg = Get-Command winget -ErrorAction SilentlyContinue
         if ($wg) {
@@ -268,9 +338,9 @@ if ($debloat -ne 'tidak') {
         $edgeGone = -not (Test-Path 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe')
         $freedEdge = if ($edgeGone) { 1 } else { 0 }
         $totalFreed += $freedEdge
-        Log "  Edge: $(if ($edgeGone) { 'BERHASIL dihapus HABIS' } else { 'GAGAL — sisa folder dipaksa hapus' })"
+        Log "  Edge: $(if ($edgeGone) { 'BERHASIL dihapus HABIS' } else { 'GAGAL - sisa folder dipaksa hapus' })"
         if (-not (Test-Path 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\msedgewebview2.exe')) {
-          Log '  WebView2 tidak ada — install WebView2 Runtime'
+          Log '  WebView2 tidak ada - install WebView2 Runtime'
           try { & winget install --id Microsoft.EdgeWebView2Runtime --exact --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null } catch {}
         }
       }
@@ -308,13 +378,13 @@ if ($debloat -ne 'tidak') {
     $totalFreed += Remove-Tree 'C:\OneDriveTemp' 'OneDriveTemp'
   } catch { Log "  OneDrive uninstall error: $($_.Exception.Message)" }
   Log "  Debloat Appx selesai: $removedAppx paket dihapus"
-  # ---------- 5c. HABISIN shortcut & sisa Unity, R, Edge, OneDrive, Xbox ----------
+  # ---------- 5c. HABISIN shortcut & sisa Unity, RGui, Edge, OneDrive, Xbox (TANPA menyentuh shortcut Game/App user!) ----------
   if ($debloat -eq 'full') {
-    Log '  FULL debloat: habisin shortcut & sisa Unity/R/Edge/OneDrive...'
+    Log '  FULL debloat: habisin shortcut & sisa Unity/RGui/Edge/OneDrive...'
     $shortcuts = @(
-      'C:\Users\Public\Desktop\Unity*.lnk','C:\Users\Public\Desktop\*R*.lnk','C:\Users\Public\Desktop\*Edge*.lnk','C:\Users\Public\Desktop\*OneDrive*.lnk','C:\Users\Public\Desktop\*Xbox*.lnk',
-      'C:\Users\Default\Desktop\Unity*.lnk','C:\Users\Default\Desktop\*R.lnk','C:\Users\Default\Desktop\*Edge*.lnk',
-      'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Unity*','C:\ProgramData\Microsoft\Windows\Start Menu\Programs\R*','C:\ProgramData\Microsoft\Windows\Start Menu\Programs\*Edge*','C:\ProgramData\Microsoft\Windows\Start Menu\Programs\*OneDrive*','C:\ProgramData\Microsoft\Windows\Start Menu\Programs\*Xbox*'
+      'C:\Users\Public\Desktop\Unity*.lnk','C:\Users\Public\Desktop\R x64*.lnk','C:\Users\Public\Desktop\R i386*.lnk','C:\Users\Public\Desktop\RGui*.lnk','C:\Users\Public\Desktop\*Edge*.lnk','C:\Users\Public\Desktop\*OneDrive*.lnk','C:\Users\Public\Desktop\*Xbox*.lnk',
+      'C:\Users\Default\Desktop\Unity*.lnk','C:\Users\Default\Desktop\R x64*.lnk','C:\Users\Default\Desktop\*Edge*.lnk',
+      'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Unity*','C:\ProgramData\Microsoft\Windows\Start Menu\Programs\R','C:\ProgramData\Microsoft\Windows\Start Menu\Programs\*Edge*','C:\ProgramData\Microsoft\Windows\Start Menu\Programs\*OneDrive*','C:\ProgramData\Microsoft\Windows\Start Menu\Programs\*Xbox*'
     )
     foreach ($sc in $shortcuts) { try { Remove-Item $sc -Recurse -Force -ErrorAction SilentlyContinue } catch {} }
     # Unity & R sisa registry & folder (sudah Remove-Tree di atas, tambah lagi AppData)
@@ -333,7 +403,7 @@ if ($debloat -ne 'tidak') {
   Log '  Debloat dilewati (DEBLOAT=tidak)'
 }
 
-# ---------- 6. Non-aktifkan pagefile sementara? TIDAK — RDP butuh pagefile.
+# ---------- 6. Non-aktifkan pagefile sementara? TIDAK - RDP butuh pagefile.
 # Tapi kita bisa pindahkan pagefile ke D: jika D: ada & lebih lega
 try {
   $dFree = Get-FreeGB
@@ -341,7 +411,7 @@ try {
   $dDrive = Get-PSDrive -Name D -ErrorAction SilentlyContinue
   if ($dDrive) {
     $dF = [math]::Round($dDrive.Free/1GB,2)
-    Log "  Drive D: ${dF}GB free — dipakai untuk Games & temp SAMP"
+    Log "  Drive D: ${dF}GB free - dipakai untuk Games & temp SAMP"
     New-Item -ItemType Directory -Path 'D:\Games' -Force | Out-Null
   }
 } catch {}
@@ -350,7 +420,7 @@ try {
 try {
   $compactStat = & compact.exe /CompactOS:query 2>&1 | Out-String
   Log "  CompactOS status: $(Log-Tail $compactStat 1)"
-  # Jangan paksa compact jika sudah compacted — cukup query
+  # Jangan paksa compact jika sudah compacted - cukup query
 } catch {}
 
 $freeAfter = Get-FreeGB
@@ -367,13 +437,23 @@ try {
       if ($ld) { $drives += @{ letter=$letter; size_gb=[math]::Round($ld.Size/1GB,2); free_gb=[math]::Round($ld.FreeSpace/1GB,2); used_gb=[math]::Round(($ld.Size-$ld.FreeSpace)/1GB,2) } }
     } catch {}
   }
-  Update-Status @{ storage = [ordered]@{
-    boost='ok'; before_gb=$freeBefore; after_gb=$freeAfter; gained_gb=$freedNow; removed_targets=$totalFreed
+  $storageReport = [ordered]@{
+    status='ok'; mode="$(if ($env:STORAGE_BOOST -eq 'tidak') { 'off' } else { 'boost' })-$(if ($env:DEBLOAT) { $env:DEBLOAT } else { 'ringan' })"
+    before_gb=$freeBefore; after_gb=$freeAfter; gained_gb=$freedNow; removed_targets=$totalFreed
     drives=$drives
     game_dir= if (Test-Path 'D:\Games') { 'D:\Games (disarankan untuk GTA)' } else { 'C:\Games' }
     note='Cleanup selesai. gained_gb adalah perubahan ruang aktual, bukan kapasitas yang dijanjikan. Target terkunci bisa tersisa.'
-  } } | Out-Null
+    updated_at=(Get-Date).ToUniversalTime().ToString('o')
+  }
+  Update-Status @{ storage = $storageReport } | Out-Null
+  # Laporan mandiri supaya aplikasi / QA bisa baca tanpa mengurai seluruh
+  # rdp-status.json (yang bentuknya bisa berubah antar versi workflow).
+  try {
+    $outDir = Join-Path (Get-Workspace) 'out'
+    New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+    ($storageReport | ConvertTo-Json -Depth 6) | Set-Content -Path (Join-Path $outDir 'storage-boost.json') -Encoding utf8
+  } catch { Log "  tulis storage-boost.json gagal: $($_.Exception.Message)" }
 } catch { Log "  tulis status storage gagal: $($_.Exception.Message)" }
 
-Log "SELESAI — Storage boost: ${freeBefore}GB -> ${freeAfter}GB (+${freedNow}GB)"
+Log "SELESAI - Storage boost: ${freeBefore}GB -> ${freeAfter}GB (+${freedNow}GB)"
 exit 0

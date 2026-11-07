@@ -1,14 +1,14 @@
 # ============================================================================
-#  setup-extras.ps1 — MODE EKSTRA (v2: Win10-style, tanpa Tailscale/XyDesk)
+#  setup-extras.ps1 - MODE EKSTRA (v2: Win10-style, tanpa Tailscale/XyDesk)
 # ----------------------------------------------------------------------------
 #  Dijalankan SETELAH setup-rdp.ps1 (+ setup-win10.ps1). Semua langkah
 #  BEST-EFFORT: satu gagal tidak mematikan sesi.
 #
 #    1) baca konfigurasi dari repo: assets/rdp-extras.json (ubah dari dashboard)
-#    2) LIGHTSHOT   — install otomatis (winget -> installer vendor), auto-run
+#    2) LIGHTSHOT   - install otomatis (winget -> installer vendor), auto-run
 #    3) TranslucentTB disabled
-#    4) WALLPAPER   — assets/wallpaper.* di repo (atau WALLPAPER_URL)
-#    5) VERIFIKASI  — user RDP dipastikan anggota grup Administrators
+#    4) WALLPAPER   - assets/wallpaper.* di repo (atau WALLPAPER_URL)
+#    5) VERIFIKASI  - user RDP dipastikan anggota grup Administrators
 #    6) rangkum hasil -> out/rdp-status.json (dibaca dashboard web)
 #
 #  Catatan: VM sekali-pakai. Setting per-user ditulis ke profil Default
@@ -27,14 +27,14 @@ if ($env:EXTRAS) {
   if (@('tidak', '0', 'false', 'no', 'off', 'skip', 'none') -contains $e) { $master = $false }
 }
 if (-not $master) {
-  Log "EXTRAS='$env:EXTRAS' — semua langkah ekstra dilewati."
+  Log "EXTRAS='$env:EXTRAS' - semua langkah ekstra dilewati."
   Update-Status @{ extras = @{ lightshot = 'skip'; wallpaper = 'skip'; wallpaper_file = ''; vscode = 'skip'; notepadpp = 'skip'; admin = $true } } | Out-Null
   exit 0
 }
 
 # ---------- 1. Konfigurasi ----------
 $cfg = Get-Cfg
-if ($env:WALLPAPER_URL) { Log 'WALLPAPER_URL diisi dari input workflow — override file di repo' }
+if ($env:WALLPAPER_URL) { Log 'WALLPAPER_URL diisi dari input workflow - override file di repo' }
 Log "lightshot=$($cfg.lightshot) | wallpaper=$($cfg.wallpaper) | win10_look=$($cfg.win10_look) | VSCode=$($cfg.vscode) | Notepad++=$($cfg.notepadpp)"
 
 # Terapkan tema juga bila pengguna mematikan langkah visual Win10.
@@ -143,13 +143,50 @@ function Install-ChocoCodingTool([string]$Label, [string]$Package) {
     return ($code -eq 0)
   } catch { Log "  pemasangan $Label gagal: $($_.Exception.Message)"; return $false }
 }
+function Install-WingetCodingTool([string]$Label, [string]$Id) {
+  $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+  if (-not $winget) { Log "  $Label dilewati: winget tidak tersedia"; return $false }
+  try {
+    Log "  memasang $Label dari winget ($Id)..."
+    & $winget.Source install --id $Id -e --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+    return $true
+  } catch { Log "  winget $Label gagal: $($_.Exception.Message)"; return $false }
+}
+function Install-VSCodeDirect {
+  try {
+    Log '  memasang VS Code (installer resmi Microsoft, unduh langsung)...'
+    $exe = Join-Path $env:TEMP 'vscode-system-x64.exe'
+    & curl.exe -fL --retry 1 --connect-timeout 15 --max-time 180 -sS 'https://update.code.visualstudio.com/latest/win32-x64-system/stable' -o $exe
+    if (-not (Test-Path $exe) -or (Get-Item $exe).Length -lt 65536) { Log '  unduhan VS Code gagal'; return }
+    $p = Start-Process -FilePath $exe -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/MERGETASKS=!runcode', '/ALLUSERS') -Wait -PassThru -WindowStyle Hidden
+    Log "  installer VS Code exit=$($p.ExitCode)"
+    Remove-Item $exe -Force -ErrorAction SilentlyContinue
+  } catch { Log "  VS Code direct gagal: $($_.Exception.Message)" }
+}
+function Install-NotepadPPDirect {
+  try {
+    Log '  memasang Notepad++ (installer resmi GitHub, unduh langsung)...'
+    $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/notepad-plus-plus/notepad-plus-plus/releases/latest' -TimeoutSec 20
+    $asset = $rel.assets | Where-Object { $_.name -match '^npp\..+\.Installer\.x64\.exe$' } | Select-Object -First 1
+    if (-not $asset) { Log '  aset installer Notepad++ tidak ditemukan'; return }
+    $exe = Join-Path $env:TEMP 'npp-installer-x64.exe'
+    & curl.exe -fL --retry 1 --connect-timeout 15 --max-time 180 -sS $asset.browser_download_url -o $exe
+    if (-not (Test-Path $exe) -or (Get-Item $exe).Length -lt 65536) { Log '  unduhan Notepad++ gagal'; return }
+    $p = Start-Process -FilePath $exe -ArgumentList @('/S') -Wait -PassThru -WindowStyle Hidden
+    Log "  installer Notepad++ exit=$($p.ExitCode)"
+    Remove-Item $exe -Force -ErrorAction SilentlyContinue
+  } catch { Log "  Notepad++ direct gagal: $($_.Exception.Message)" }
+}
 
 $resVSCode = 'skip'
 if ($cfg.vscode) {
   Log 'VS CODE: cek / pasang...'
   if (Find-VSCode) { $resVSCode = 'sudah ada'; Log '  VS Code sudah tersedia' }
   else {
-    Install-ChocoCodingTool 'VS Code' 'vscode.install' | Out-Null
+    # Rantai fallback: winget -> Chocolatey -> installer resmi langsung.
+    Install-WingetCodingTool 'VS Code' 'Microsoft.VisualStudioCode' | Out-Null
+    if (-not (Find-VSCode)) { Install-ChocoCodingTool 'VS Code' 'vscode.install' | Out-Null }
+    if (-not (Find-VSCode)) { Install-VSCodeDirect }
     Start-Sleep -Seconds 2
     $resVSCode = if (Find-VSCode) { 'ok' } else { 'gagal' }
     Log "  VS Code: $resVSCode"
@@ -161,7 +198,10 @@ if ($cfg.notepadpp) {
   Log 'NOTEPAD++: cek / pasang...'
   if (Find-NotepadPP) { $resNotepadPP = 'sudah ada'; Log '  Notepad++ sudah tersedia' }
   else {
-    Install-ChocoCodingTool 'Notepad++' 'notepadplusplus.install' | Out-Null
+    # Rantai fallback: winget -> Chocolatey -> installer resmi langsung.
+    Install-WingetCodingTool 'Notepad++' 'Notepad++.Notepad++' | Out-Null
+    if (-not (Find-NotepadPP)) { Install-ChocoCodingTool 'Notepad++' 'notepadplusplus.install' | Out-Null }
+    if (-not (Find-NotepadPP)) { Install-NotepadPPDirect }
     Start-Sleep -Seconds 2
     $resNotepadPP = if (Find-NotepadPP) { 'ok' } else { 'gagal' }
     Log "  Notepad++: $resNotepadPP"
@@ -183,7 +223,7 @@ if ($cfg.wallpaper) {
   $wpDir = 'C:\XyRDP'
   $wpFile = $null; $srcUsed = ''
 
-  # urutan sumber: input workflow -> file di repo (checkout) -> raw github
+  # urutan sumber: input workflow -> simpanan sesi sebelumnya (C:\Persist\Config) -> file di repo (checkout) -> raw github
   if ($env:WALLPAPER_URL) {
     try {
       New-Item -ItemType Directory -Path $wpDir -Force | Out-Null
@@ -191,9 +231,19 @@ if ($cfg.wallpaper) {
       if (Get-File $env:WALLPAPER_URL $tmp 180) {
         $ext = Get-ImageExt ([IO.File]::ReadAllBytes($tmp))
         if ($ext) { $wpFile = Join-Path $wpDir "wallpaper.$ext"; Move-Item $tmp $wpFile -Force; $srcUsed = 'WALLPAPER_URL' }
-        else { Log '  URL bukan gambar jpg/png/bmp — diabaikan' }
+        else { Log '  URL bukan gambar jpg/png/bmp - diabaikan' }
       }
     } catch { Log "  unduh dari WALLPAPER_URL gagal: $($_.Exception.Message)" }
+  }
+  if (-not $wpFile -and (Test-Path 'C:\Persist\Config')) {
+    $persistedWp = Get-ChildItem -Path 'C:\Persist\Config' -Filter 'wallpaper.*' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($persistedWp) {
+      New-Item -ItemType Directory -Path $wpDir -Force | Out-Null
+      $ext = $persistedWp.Extension.TrimStart('.').ToLower()
+      $wpFile = Join-Path $wpDir "wallpaper.$ext"
+      Copy-Item $persistedWp.FullName $wpFile -Force
+      $srcUsed = "persist ($($persistedWp.Name))"
+    }
   }
   if (-not $wpFile) {
     $repoFile = $null
@@ -222,6 +272,13 @@ if ($cfg.wallpaper) {
 
   if ($wpFile -and (Test-Path $wpFile)) {
     Log "  wallpaper: $wpFile (sumber: $srcUsed)"
+    try {
+      $ext = [IO.Path]::GetExtension($wpFile)
+      New-Item -ItemType Directory -Path 'C:\Users\Public\Pictures\XyRDP' -Force -ErrorAction SilentlyContinue | Out-Null
+      New-Item -ItemType Directory -Path 'C:\Persist\Config' -Force -ErrorAction SilentlyContinue | Out-Null
+      Copy-Item -LiteralPath $wpFile -Destination "C:\Users\Public\Pictures\XyRDP\wallpaper$ext" -Force -ErrorAction SilentlyContinue
+      Copy-Item -LiteralPath $wpFile -Destination "C:\Persist\Config\wallpaper$ext" -Force -ErrorAction SilentlyContinue
+    } catch {}
     Set-RegBoth 'Control Panel\Desktop' 'Wallpaper'      $wpFile 'String' | Out-Null
     Set-RegBoth 'Control Panel\Desktop' 'WallpaperStyle' '10'     'String' | Out-Null
     Set-RegBoth 'Control Panel\Desktop' 'TileWallpaper'  '0'      'String' | Out-Null
@@ -231,6 +288,109 @@ if ($cfg.wallpaper) {
     Log '  tidak ada wallpaper (upload lewat dashboard atau isi WALLPAPER_URL)'
     $resWall = 'default'
   }
+}
+
+# ---------- 4b. LIVELY WALLPAPER v2.2.1.0 (60 FPS ANTI-STUCK RDP OPTIMIZATION) ----------
+$resLively = 'skip'
+try {
+  Log 'LIVELY WALLPAPER: mengoptimalkan DWM 60Hz & memasang Lively Wallpaper v2.2.1.0 Anti-Stuck RDP...'
+  # 1. Buka kebijakan RDP Wallpaper & Desktop Composition 60 FPS via Policy & WinStations root
+  #    PENTING: JANGAN PERNAH memanggil New-Item -Force atau menulis ke WinStations\RDP-Tcp
+  #    karena akan menghapus konfigurasi listener RDP 3389 (membuat step Tailscale gagal)!
+  $tsPolPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
+  if (-not (Test-Path $tsPolPath)) {
+    New-Item -Path $tsPolPath -Force -ErrorAction SilentlyContinue | Out-Null
+  }
+  Set-ItemProperty -Path $tsPolPath -Name 'fDisableWallpaper' -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+  Set-ItemProperty -Path $tsPolPath -Name 'fNoRemoteDesktopWallpaper' -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+  Set-ItemProperty -Path $tsPolPath -Name 'fNoFontSmoothing' -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations' -Name 'DWMFRAMEINTERVAL' -Value 15 -Type DWord -Force -ErrorAction SilentlyContinue
+  Set-RegBoth 'Software\Microsoft\Windows\DWM' 'Composition' 1 'DWord' | Out-Null
+  Set-RegBoth 'Software\Microsoft\Windows\DWM' 'CompositionPolicy' 2 'DWord' | Out-Null
+
+  # 2. Cari atau pasang Lively Wallpaper v2.2.1.0 resmi
+  function Find-LivelyExe {
+    foreach ($cand in @(
+      'C:\Program Files (x86)\Lively Wallpaper\Lively.exe',
+      'C:\Program Files\Lively Wallpaper\Lively.exe',
+      "$env:LOCALAPPDATA\Programs\Lively Wallpaper\Lively.exe",
+      "C:\Users\$u\AppData\Local\Programs\Lively Wallpaper\Lively.exe"
+    )) {
+      if ($cand -and (Test-Path $cand)) { return $cand }
+    }
+    return $null
+  }
+
+  $livelyExe = Find-LivelyExe
+  if (-not $livelyExe) {
+    $livelySetup = Join-Path $env:RUNNER_TEMP 'lively_setup_x86_full_v2210.exe'
+    if (Get-File 'https://github.com/lively-community/lively/releases/download/v2.2.1.0/lively_setup_x86_full_v2210.exe' $livelySetup 240) {
+      $lProc = Start-Process -FilePath $livelySetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS') -PassThru -WindowStyle Hidden
+      if ($lProc) { $lProc.WaitForExit(180000) | Out-Null }
+      Remove-Item $livelySetup -Force -ErrorAction SilentlyContinue
+      $livelyExe = Find-LivelyExe
+    }
+  }
+
+  # 3. Tulis Settings.json Lively Wallpaper dengan RemoteDesktopPause = 1 (AppRules.ignore)
+  #    agar Live Wallpaper TIDAK PERNAH PAUSE / STUCK saat diakses dari RDP maupun APK Android!
+  $livelySettingsJson = @'
+{
+  "AppVersion": "2.2.1.0",
+  "Language": "en-US",
+  "Startup": true,
+  "IsFirstRun": false,
+  "ControlPanelOpened": true,
+  "AppFocusPause": 1,
+  "AppFullscreenPause": 1,
+  "BatteryPause": 1,
+  "RemoteDesktopPause": 1,
+  "PowerSaveModePause": 1,
+  "DisplayPauseRule": 0,
+  "PauseAlgorithm": 0,
+  "VideoPlayer": 0,
+  "VideoPlayerHwAccel": false,
+  "GifPlayer": 0,
+  "WebBrowser": 0,
+  "KeepAwakeUI": true,
+  "LivelyGUIRendering": 1,
+  "WallpaperArrangement": 0,
+  "SysTrayIcon": true,
+  "WebDebugPort": "",
+  "AutoDetectOnlineStreams": false,
+  "ExtractStreamMetaData": false,
+  "WallpaperBundleVersion": 3,
+  "AudioVolumeGlobal": 50,
+  "AudioOnlyOnDesktop": false,
+  "RememberSelectedScreen": true
+}
+'@
+  foreach ($profUser in @($u, 'runneradmin', 'xyadmin', 'Default')) {
+    if (-not $profUser) { continue }
+    $livelyDataDir = "C:\Users\$profUser\AppData\Local\Lively Wallpaper"
+    New-Item -ItemType Directory -Path $livelyDataDir -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-Content -LiteralPath (Join-Path $livelyDataDir 'Settings.json') -Value $livelySettingsJson -Encoding UTF8 -Force
+  }
+
+  # 4. Buat Shortcut Lively Wallpaper di Desktop dengan ikon asli Lively.exe
+  if ($livelyExe -and (Test-Path $livelyExe)) {
+    Log "  Lively Wallpaper siap di: $livelyExe (RemoteDesktopPause=Ignore / 60Hz Anti-Stuck)"
+    foreach ($desk in @("C:\Users\$u\Desktop", "C:\Users\Public\Desktop", "C:\Users\Default\Desktop")) {
+      New-Item -ItemType Directory -Path $desk -Force -ErrorAction SilentlyContinue | Out-Null
+      try {
+        $wsh = New-Object -ComObject WScript.Shell
+        $lnk = $wsh.CreateShortcut((Join-Path $desk 'Lively Wallpaper.lnk'))
+        $lnk.TargetPath = $livelyExe
+        $lnk.WorkingDirectory = Split-Path $livelyExe -Parent
+        $lnk.IconLocation = "$livelyExe,0"
+        $lnk.Description = 'Lively Wallpaper (60 FPS Live Wallpaper Anti-Stuck RDP)'
+        $lnk.Save()
+      } catch {}
+    }
+    $resLively = 'ok'
+  }
+} catch {
+  Log "  Lively Wallpaper setup warning: $($_.Exception.Message)"
 }
 
 # ---------- 5. VERIFIKASI: sesi harus ADMIN ----------
@@ -277,7 +437,7 @@ Update-Status @{ extras = [ordered]@{
 Close-DefaultHive
 
 $adminTxt = $(if ($adminOk) { 'YA' } else { 'TIDAK' })
-Log ("SELESAI — lightshot={0} wallpaper={2} admin={3}" -f $resLightshot, $resWall, $adminTxt)
+Log ("SELESAI - lightshot={0} wallpaper={1} admin={2}" -f $resLightshot, $resWall, $adminTxt)
 try { Probe-Rdp 'akhir step' | Out-Null } catch {}
 
 exit 0

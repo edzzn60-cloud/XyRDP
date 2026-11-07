@@ -48,14 +48,43 @@ try {
   if (-not (Test-Path $exe)) { throw 'Tailscale CLI tidak ditemukan' }
   Start-Service Tailscale -ErrorAction Stop
   if ($InstallOnly) { $version=Run-Bounded $exe @('version') 30; if ($version.code -ne 0) { throw 'Verifikasi CLI Tailscale gagal' }; Log "Install-only validation OK: $($version.text.Trim())"; return }
-  $hostName=("$env:HOSTNAME-$env:GITHUB_RUN_NUMBER" -replace '[^a-zA-Z0-9-]','').Trim('-')
+  $hostName=("$env:HOSTNAME" -replace '[^a-zA-Z0-9-]','').Trim('-')
   if (-not $hostName) { $hostName='rdpfree' }; if ($hostName.Length -gt 60) { $hostName=$hostName.Substring(0,60) }
-  $up=Run-Bounded $exe @('up',"--auth-key=$env:TAILSCALE_AUTH_KEY","--hostname=$hostName",'--accept-dns=false','--timeout=90s') 120
-  if ($up.code -ne 0) { throw 'Tailscale menolak koneksi. Periksa masa berlaku auth key dan persetujuan perangkat di tailnet.' }
+  # tailscale up dicoba sampai 3x (service direstart antar-percobaan). Alasan
+  # penolakan asli dari CLI (auth key kedaluwarsa / menunggu persetujuan
+  # perangkat) diteruskan ke log & status TANPA membocorkan auth key.
+  function Protect-Msg([string]$s) {
+    if (-not $s) { return '' }
+    $o = $s
+    if ($env:TAILSCALE_AUTH_KEY) { $o = $o.Replace($env:TAILSCALE_AUTH_KEY, '[redacted]') }
+    $o = $o -replace 'tskey-[A-Za-z0-9\-_]+', '[redacted]'
+    return $o.Trim()
+  }
+  $up = $null
+  for ($upTry = 1; $upTry -le 3; $upTry++) {
+    $up = Run-Bounded $exe @('up',"--auth-key=$env:TAILSCALE_AUTH_KEY","--hostname=$hostName",'--accept-dns=false','--accept-routes=false','--timeout=90s') 120
+    if ($up.code -eq 0) { break }
+    Log "tailscale up percobaan $upTry/3 gagal (exit $($up.code)): $(Protect-Msg $up.error)"
+    if ($upTry -lt 3) {
+      try { Restart-Service Tailscale -Force -ErrorAction SilentlyContinue } catch {}
+      Start-Sleep -Seconds 5
+    }
+  }
+  if ($up.code -ne 0) { throw "Tailscale menolak koneksi: $(Protect-Msg $up.error) - Periksa masa berlaku auth key dan persetujuan perangkat di tailnet." }
   $state=Run-Bounded $exe @('status','--json') 30
   $status=$state.text | ConvertFrom-Json
   $ip=@($status.Self.TailscaleIPs | Where-Object { $_ -match '^100\.' }) | Select-Object -First 1
   if ($status.BackendState -ne 'Running' -or -not $ip) { throw 'Tailscale belum siap atau belum disetujui oleh pemilik tailnet' }
+  # Isolasi metric adapter Tailscale agar trafik keluar game (UDP SA-MP :7777) selalu memakai Ethernet utama & tidak terdeteksi VPN
+  try {
+    Get-NetAdapter | Where-Object { $_.Name -match 'Tailscale' -or $_.InterfaceDescription -match 'Tailscale|Wintun' } | ForEach-Object {
+      Set-NetIPInterface -InterfaceIndex $_.ifIndex -AutomaticMetric Disabled -InterfaceMetric 5000 -ErrorAction SilentlyContinue
+    }
+    Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -notmatch 'Tailscale|OpenVPN|TAP' -and $_.InterfaceDescription -notmatch 'Tailscale|OpenVPN|TAP|Wintun' } | ForEach-Object {
+      Set-NetIPInterface -InterfaceIndex $_.ifIndex -AutomaticMetric Disabled -InterfaceMetric 5 -ErrorAction SilentlyContinue
+    }
+    Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'DefaultTTL' -Value 128 -Type DWord -ErrorAction SilentlyContinue
+  } catch {}
   $deadline=(Get-Date).AddSeconds(90)
   $repairedRdp=$false
   do {

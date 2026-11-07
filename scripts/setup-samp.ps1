@@ -1,5 +1,5 @@
 # ============================================================================
-#  setup-samp.ps1 — Suite Lengkap GTA San Andreas & SA-MP 0.3.7-R5 / open.mp
+#  setup-samp.ps1 - Suite Lengkap GTA San Andreas & SA-MP 0.3.7-R5 / open.mp
 #                   (Anti-Blank / Anti-Crash di Windows Server RDP Tanpa GPU)
 # ----------------------------------------------------------------------------
 #  Mengatasi seluruh penyebab GTA SA / SA-MP "tidak muncul apa-apa" di RDP:
@@ -11,7 +11,7 @@
 #     resolusi virtual 800x600 / 1280x720 / 1920x1080 agar gta_sa.exe tidak
 #     pernah keluar diam-diam karena "Cannot find 800x600x32 video mode".
 #  3) Memasang III.VC.SA.WindowedMode.asi + SilentPatchSA.asi + vorbisFile.dll
-#     (Ultimate ASI Loader tunggal — TANPA duplikasi dinput8.dll/ddraw.dll
+#     (Ultimate ASI Loader tunggal - TANPA duplikasi dinput8.dll/ddraw.dll
 #     yang sebelumnya membuat .asi termuat 2x dan crash saat start).
 #  4) Menonaktifkan paksaan DEP Windows Server (bcdedit nx OptIn + AppCompat
 #     DisableNXShowUI) agar injeksi samp.dll ke gta_sa.exe tidak dibunuh OS.
@@ -41,6 +41,10 @@ $sys32 = Join-Path $env:SystemRoot 'System32'
 $wow64 = Join-Path $env:SystemRoot 'SysWOW64'
 $work  = 'C:\XyRDP\deps\samp'
 New-Item -ItemType Directory -Path $work -Force | Out-Null
+
+# Cegah Defender mengkarantina samp.dll / mod GTA SA / wrapper dgVoodoo saat
+# pertama kali dibuka (VM sekali-pakai, best-effort).
+Disable-DefenderForGames
 
 function Test-FilesPresent([string]$Dir, [string[]]$Names) {
   foreach ($n in $Names) {
@@ -107,7 +111,7 @@ function Start-ProcessWithTimeout([string]$FilePath, [string[]]$ArgumentList, [s
     }
     $p = Start-Process @psi
     if (-not $p.WaitForExit($TimeoutSec * 1000)) {
-      Log "  proses '$(Split-Path $FilePath -Leaf)' melebihi batas $TimeoutSec detik — dihentikan."
+      Log "  proses '$(Split-Path $FilePath -Leaf)' melebihi batas $TimeoutSec detik - dihentikan."
       try { $p.Kill() } catch {}
       return -1
     }
@@ -242,10 +246,12 @@ function Install-CompleteSampSuite {
 
   $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
   if (-not (Test-Path $sevenZip)) { $sevenZip = "${env:ProgramFiles(x86)}\7-Zip\7z.exe" }
+  if (-not (Test-Path $sevenZip)) { $sevenZip = Get-SevenZipPath }
 
-  # Pastikan tidak ada sisa dinput8.dll / ddraw.dll lama di $modsDir yang bentrok dengan vorbisFile.dll
+  # Pastikan tidak ada sisa dinput8.dll lama di $modsDir yang bentrok dengan vorbisFile.dll
+  # CATATAN PENTING: JANGAN PERNAH menghapus ddraw.dll / d3dimm.dll karena gta_sa.exe US 1.0
+  # memanggil DirectDrawCreateEx (ddraw.dll) di alamat 0x00746929 sebelum membuat D3D9 device!
   Remove-Item (Join-Path $modsDir 'dinput8.dll') -Force -ErrorAction SilentlyContinue
-  Remove-Item (Join-Path $modsDir 'ddraw.dll') -Force -ErrorAction SilentlyContinue
 
   # 1. Unduh Ultimate ASI Loader x86 dan pasang HANYA sebagai vorbisFile.dll
   #    (Ultimate ASI Loader v9.7.4 sudah memuat Ogg Vorbis 1.3.7 internal + ASI Loader dalam 1 file.
@@ -269,39 +275,27 @@ function Install-CompleteSampSuite {
     } catch { Log "Unduh Ultimate ASI Loader warning: $($_.Exception.Message)" }
   }
 
-  # 2. Unduh SilentPatchSA resmi (SilentPatchSA.asi)
+  # 2. Unduh SilentPatchSA resmi (SilentPatchSA.asi) langsung ke folder scripts\ (JANGAN di root agar tidak dimuat 2x!)
   $spSaZip = Join-Path $work 'SilentPatchSA.zip'
-  if (-not (Test-Path (Join-Path $modsDir 'SilentPatchSA.asi'))) {
+  Remove-Item (Join-Path $modsDir 'SilentPatchSA.asi') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $modsDir 'SilentPatchSA.ini') -Force -ErrorAction SilentlyContinue
+  if (-not (Test-Path (Join-Path $scriptsDir 'SilentPatchSA.asi'))) {
     try {
       if (Invoke-DownloadWithRetry 'https://github.com/CookiePLMonster/SilentPatch/releases/latest/download/SilentPatchSA.zip' $spSaZip 2) {
-        if (Test-Path $sevenZip) { & $sevenZip x $spSaZip "-o$modsDir" -y 2>&1 | Out-Null }
-        else { Expand-Archive -Path $spSaZip -DestinationPath $modsDir -Force }
-        Log 'SilentPatchSA.asi berhasil disiapkan.'
+        if (Test-Path $sevenZip) { & $sevenZip x $spSaZip "-o$scriptsDir" -y 2>&1 | Out-Null }
+        else { Expand-Archive -Path $spSaZip -DestinationPath $scriptsDir -Force }
+        Log 'SilentPatchSA.asi berhasil disiapkan di scripts\.'
       }
     } catch { Log "Unduh SilentPatchSA warning: $($_.Exception.Message)" }
   }
 
-  # 3. Unduh III.VC.SA.WindowedMode.asi (WAJIB untuk RDP agar gta_sa.exe jalan di Windowed Mode!)
-  $wmZip = Join-Path $work 'III.VC.SA.WindowedMode.zip'
-  if (-not (Test-Path (Join-Path $scriptsDir 'III.VC.SA.WindowedMode.asi'))) {
-    try {
-      if (Invoke-DownloadWithRetry 'https://github.com/ThirteenAG/III.VC.SA.WindowedMode/releases/latest/download/III.VC.SA.WindowedMode.zip' $wmZip 2) {
-        $wmExt = Join-Path $work 'wm_ext'
-        Remove-Item $wmExt -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Path $wmExt -Force | Out-Null
-        if (Test-Path $sevenZip) { & $sevenZip x $wmZip "-o$wmExt" -y 2>&1 | Out-Null }
-        else { Expand-Archive -Path $wmZip -DestinationPath $wmExt -Force }
-        $wmAsi = Get-ChildItem -Path $wmExt -Recurse -File -Filter 'III.VC.SA.WindowedMode.asi' -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($wmAsi) {
-          Copy-Item $wmAsi.FullName -Destination (Join-Path $scriptsDir 'III.VC.SA.WindowedMode.asi') -Force
-          Log 'III.VC.SA.WindowedMode.asi berhasil disiapkan.'
-        }
-        Remove-Item $wmExt -Recurse -Force -ErrorAction SilentlyContinue
-      }
-    } catch { Log "Unduh WindowedMode warning: $($_.Exception.Message)" }
-  }
+  # 3. Hapus III.VC.SA.WindowedMode.asi lama jika ada karena dgVoodoo2 (FullScreenMode=false) sudah menangani Windowed Mode & Alt+Enter secara native tanpa bentrok hook D3D9!
+  Remove-Item (Join-Path $scriptsDir 'III.VC.SA.WindowedMode.asi') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $scriptsDir 'III.VC.SA.WindowedMode.cfg') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $modsDir 'III.VC.SA.WindowedMode.asi') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $modsDir 'III.VC.SA.WindowedMode.cfg') -Force -ErrorAction SilentlyContinue
 
-  # 4. Unduh GTASA.WidescreenFix.asi (tanpa menimpa konfigurasi secara ganda)
+  # 4. Unduh GTASA.WidescreenFix.asi & tulis GTASA.WidescreenFix.ini
   $wsZip = Join-Path $work 'GTASA.WidescreenFix.zip'
   if (-not (Test-Path (Join-Path $scriptsDir 'GTASA.WidescreenFix.asi'))) {
     try {
@@ -313,12 +307,23 @@ function Install-CompleteSampSuite {
       }
     } catch {}
   }
+  @(
+    '[MAIN]'
+    'ResX = 0'
+    'ResY = 0'
+    'FixAspectRatio = 1'
+    'FOVControl = 1'
+    'HideAABug = 1'
+    'SmartCutsceneBorders = 1'
+    'DontTouchFOV = 0'
+  ) | Set-Content -Path (Join-Path $scriptsDir 'GTASA.WidescreenFix.ini') -Encoding ASCII -Force
 
-  # 5. Unduh dgVoodoo2 x86 Direct3D 9 Wrapper (MS\x86\D3D9.dll + DDraw.dll + D3D8.dll + dgVoodoo.conf)
-  #    Menerjemahkan DirectX 9 Hardware HAL ke Direct3D 11/12 WARP di Microsoft Basic Display Adapter
-  #    sehingga gta_sa.exe punya GPU virtual + daftar resolusi 800x600 s/d 1920x1080 lengkap!
+  # 5. Unduh dgVoodoo2 x86 DirectX Wrapper LENGKAP (MS\x86\D3D9.dll + DDraw.dll + D3DImm.dll + D3D8.dll + dgVoodoo.conf)
+  #    WAJIB menyertakan DDraw.dll + D3DImm.dll selain D3D9.dll untuk mencegah crash:
+  #    "SA-MP 0.3.7-R5 Exception At Address: 0x00746929 (EAX: 0x00000000, US 1.0)"
+  #    karena gta_sa.exe memanggil DirectDrawCreateEx di 0x00746920 sebelum membuat D3D9 device!
   $dgvZip = Join-Path $work 'dgVoodoo2.zip'
-  if (-not (Test-Path (Join-Path $modsDir 'd3d9.dll'))) {
+  if (-not (Test-Path (Join-Path $modsDir 'd3d9.dll')) -or -not (Test-Path (Join-Path $modsDir 'ddraw.dll')) -or -not (Test-Path (Join-Path $modsDir 'd3dimm.dll'))) {
     try {
       $dgvUrl = 'https://github.com/dege-diosg/dgVoodoo2/releases/download/v2.87.5/dgVoodoo2_87_5.zip'
       try {
@@ -332,63 +337,40 @@ function Install-CompleteSampSuite {
         New-Item -ItemType Directory -Path $dgvExt -Force | Out-Null
         if (Test-Path $sevenZip) { & $sevenZip x $dgvZip "-o$dgvExt" -y 2>&1 | Out-Null }
         else { Expand-Archive -Path $dgvZip -DestinationPath $dgvExt -Force }
-        $x86D3d9 = Join-Path $dgvExt 'MS\x86\D3D9.dll'
-        if (Test-Path $x86D3d9) {
-          Copy-Item $x86D3d9 -Destination (Join-Path $modsDir 'd3d9.dll') -Force
-          Log 'dgVoodoo2 x86 D3D9.dll (Direct3D 9 -> D3D11/12 WARP Renderer) berhasil dipasang!'
+        foreach ($dllName in @('D3D9.dll', 'DDraw.dll', 'D3DImm.dll', 'D3D8.dll')) {
+          $srcDll = Join-Path $dgvExt "MS\x86\$dllName"
+          if (Test-Path $srcDll) {
+            Copy-Item $srcDll -Destination (Join-Path $modsDir $dllName.ToLower()) -Force
+          }
         }
+        $origConf = Join-Path $dgvExt 'dgVoodoo.conf'
+        if (Test-Path $origConf) {
+          $confTxt = Get-Content -Path $origConf -Raw
+          $confTxt = $confTxt -replace '(?m)^OutputAPI\s*=.*$', 'OutputAPI = bestavailable'
+          $confTxt = $confTxt -replace '(?m)^dgVoodooWatermark\s*=.*$', 'dgVoodooWatermark = false'
+          $confTxt = $confTxt -replace '(?m)^VRAM\s*=.*$', 'VRAM = 512'
+          # Tuning performa WARP (software GPU): matikan AA/aniso/vsync supaya
+          # frame game tidak ditahan filter berat di render software.
+          $confTxt = $confTxt -replace '(?m)^AntialiasingMode\s*=.*$', 'AntialiasingMode = 0'
+          $confTxt = $confTxt -replace '(?m)^AnisotropicFiltering\s*=.*$', 'AnisotropicFiltering = 0'
+          $confTxt = $confTxt -replace '(?m)^VSync\s*=.*$', 'VSync = false'
+          Set-Content -Path (Join-Path $modsDir 'dgVoodoo.conf') -Value $confTxt -Encoding ASCII -Force
+        }
+        Log 'dgVoodoo2 x86 LENGKAP (d3d9.dll + ddraw.dll + d3dimm.dll + d3d8.dll -> D3D11 WARP) berhasil dipasang (Anti-Crash 0x00746929)!'
         Remove-Item $dgvExt -Recurse -Force -ErrorAction SilentlyContinue
       }
     } catch { Log "Unduh dgVoodoo2 warning: $($_.Exception.Message)" }
   }
 
-  # Tulis dgVoodoo.conf khusus RDP (Windowed Mode, No Watermark, 512MB Virtual VRAM, Resolusi Lengkap)
-  @(
-    'Version                              = 0x287'
-    '[General]'
-    'OutputAPI                            = bestavailable'
-    'Adapters                             = all'
-    'FullScreenOutput                     = default'
-    'FullScreenMode                       = false'
-    'ScalingMode                          = stretched_ar'
-    'ProgressiveScanlineOrder             = false'
-    'EnumerateRefreshRates                = false'
-    'Brightness                           = 100'
-    'Color                                = 100'
-    'Contrast                             = 100'
-    'InheritColorProfileInFullScreenMode  = false'
-    'KeepWindowAspectRatio                = true'
-    'CaptureMouse                         = false'
-    'CenterAppWindow                      = true'
-    'DisableScreenSaver                   = true'
-    '[GeneralExt]'
-    'PresentationModel                    = auto'
-    'FreeMouse                            = true'
-    'WindowedAttributes                   = borderless'
-    '[DirectX]'
-    'DisableAndPassThru                  = false'
-    'VideoCard                           = internal3D'
-    'VRAM                                = 512'
-    'Filtering                           = appdriven'
-    'Mipmapping                          = appdriven'
-    'Resolution                          = unforced'
-    'Antialiasing                        = off'
-    'AppControlledScreenMode             = false'
-    'DisableAltEnterToToggleScreenMode   = false'
-    'Bilinear2DOperations                = false'
-    'PhongShadingWhenPossible            = false'
-    'ForceVerticalSync                   = false'
-    'dgVoodooWatermark                   = false'
-    'FastVideoMemoryAccess               = true'
-    'DisableD3DTnLDevice                 = false'
-    '[DirectXExt]'
-    'DefaultEnumeratedResolutions        = all'
-    'ExtraEnumeratedResolutions          = 800x600, 1024x768, 1280x720, 1366x768, 1600x900, 1920x1080'
-    'EnumeratedResolutionBitdepths       = all'
-    'MSD3DDeviceNames                    = true'
-  ) | Set-Content -Path (Join-Path $modsDir 'dgVoodoo.conf') -Encoding ASCII -Force
+  # 5b. Simpan DSOAL di folder cadangan DSOAL-Backup (tidak menimpa SysWOW64\dsound.dll saat VB-Audio Virtual Cable aktif)
+  $dsoalBackupDir = Join-Path $kitRoot 'DSOAL-Backup'
+  New-Item -ItemType Directory -Path $dsoalBackupDir -Force | Out-Null
+  Remove-Item (Join-Path $modsDir 'dsound.dll') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $modsDir 'dsoal-aldrv.dll') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $gameDir 'dsound.dll') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $gameDir 'dsoal-aldrv.dll') -Force -ErrorAction SilentlyContinue
 
-  # 6. Tulis konfigurasi SilentPatchSA.ini (90 FPS + FixMouseStuck RDP)
+  # 6. Tulis konfigurasi SilentPatchSA.ini di scripts\ (90 FPS + SkipIntroSplashes + FixMouseStuck RDP)
   @(
     '[SilentPatch]'
     'FPSLimit=90'
@@ -398,7 +380,7 @@ function Install-CompleteSampSuite {
     'NVCache=1'
     'TwoPassRendering=0'
     'FixMouseStuck=1'
-  ) | Set-Content -Path (Join-Path $modsDir 'SilentPatchSA.ini') -Encoding ASCII -Force
+  ) | Set-Content -Path (Join-Path $scriptsDir 'SilentPatchSA.ini') -Encoding ASCII -Force
 
   # 7. Unduh & Ekstrak SA-MP 0.3.7-R5 Client (samp.exe, samp.dll, samp.saa) langsung ke SAMP-Client & C:\Games\GTA San Andreas
   $sampInstaller = Join-Path $instDir 'sa-mp-0.3.7-R5-2-MP-install.exe'
@@ -463,10 +445,21 @@ function Install-CompleteSampSuite {
 
   if (-not (Test-Path (Join-Path $gameDir 'gta_sa.exe'))) {
     try {
-      Log "Mengunduh GTA San Andreas Portable ($gtaUrl)..."
       $gtaArc = Join-Path $work 'gta_sa_portable.archive'
-      Remove-Item $gtaArc -Force -ErrorAction SilentlyContinue
-      & curl.exe -fL -A "Mozilla/5.0" --retry 2 --connect-timeout 15 --max-time 210 -sS $gtaUrl -o $gtaArc
+      $gtaUrls = @(
+        'https://ia600103.us.archive.org/5/items/gta-san-andreas_20220115/GTA%20San%20Andreas.rar',
+        'https://archive.org/download/gta-san-andreas_20220115/GTA%20San%20Andreas.rar',
+        'https://ia800103.us.archive.org/5/items/gta-san-andreas_20220115/GTA%20San%20Andreas.rar'
+      )
+      if ($env:GTA_SA_URL -and $env:GTA_SA_URL.Trim()) { $gtaUrls = @($env:GTA_SA_URL.Trim()) + $gtaUrls }
+      foreach ($uGta in $gtaUrls) {
+        Log "Mengunduh GTA San Andreas Portable ($uGta)..."
+        Remove-Item $gtaArc -Force -ErrorAction SilentlyContinue
+        & curl.exe -fL -A "Mozilla/5.0" --retry 1 --connect-timeout 15 --speed-time 15 --speed-limit 500000 --max-time 240 -sS $uGta -o $gtaArc
+        if ((Test-Path $gtaArc) -and (Get-Item $gtaArc).Length -gt 500000000) {
+          break
+        }
+      }
       if ((Test-Path $gtaArc) -and (Get-Item $gtaArc).Length -gt 50000000) {
         Log "Mengekstrak arsip GTA San Andreas ($([math]::Round((Get-Item $gtaArc).Length / 1MB, 1)) MB) ke $gameDir..."
         if (Test-Path $sevenZip) { & $sevenZip x $gtaArc "-o$gameDir" -y 2>&1 | Out-Null }
@@ -486,13 +479,25 @@ function Install-CompleteSampSuite {
     } catch { Log "Auto-download GTA SA selesai/dilewati: $($_.Exception.Message)" }
   }
 
+  # 9b. Cerminkan GTA SA ke C:\Persist agar sesi berikutnya TIDAK unduh ulang
+  #     590MB - persist-state.ps1 membawa C:\Persist ke sesi berikutnya, dan
+  #     restore-state.ps1 + blok C:\Persist di atas memasangnya kembali.
+  try {
+    if ((Test-Path (Join-Path $gameDir 'gta_sa.exe')) -and -not (Test-Path 'C:\Persist\GTA San Andreas\gta_sa.exe')) {
+      Log 'Mencerminkan GTA San Andreas ke C:\Persist (anti unduh-ulang sesi depan)...'
+      New-Item -ItemType Directory -Path 'C:\Persist\GTA San Andreas' -Force -ErrorAction SilentlyContinue | Out-Null
+      & robocopy.exe $gameDir 'C:\Persist\GTA San Andreas' /E /R:1 /W:1 /NFL /NDL /NJH /NJS 2>&1 | Out-Null
+    }
+  } catch { Log "Cermin GTA ke C:\Persist dilewati: $($_.Exception.Message)" }
+
   # 10. Buat Script Auto-Patcher & Control Center GUI (GTA-SAMP-Manager.ps1)
   $patcherPath = Join-Path $kitRoot 'Patch-GTA-SAMP.ps1'
   $patcherCode = @'
 param(
   [string]$TargetDir = '',
   [switch]$Interactive,
-  [switch]$LaunchSamp
+  [switch]$LaunchSamp,
+  [switch]$ResetAntiBan
 )
 $ErrorActionPreference = 'Continue'
 $kitRoot   = 'C:\Games\GTA-SAMP'
@@ -501,54 +506,236 @@ $sampCache = Join-Path $kitRoot 'SAMP-Client'
 $instDir   = Join-Path $kitRoot 'Installers'
 $defGame   = 'C:\Games\GTA San Andreas'
 
-function Apply-SilentPatchToDir([string]$Dir) {
-  if (-not $Dir -or -not (Test-Path $Dir)) { return $false }
+function Set-SampRegistryAllUsers([string]$GtaExePath, [string]$PlayerNameVal, [switch]$ForcePlayerName) {
+  if (-not $GtaExePath -or -not (Test-Path $GtaExePath)) {
+    $GtaExePath = 'C:\Games\GTA San Andreas\gta_sa.exe'
+  }
+  $sampExePath = Join-Path (Split-Path -Parent $GtaExePath) 'samp.exe'
+  $regPaths = @('HKCU:\Software\SAMP')
+  try {
+    Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | Where-Object {
+      $_.PSChildName -notmatch '_Classes$' -and $_.PSChildName -ne '.DEFAULT'
+    } | ForEach-Object {
+      $regPaths += "Registry::HKEY_USERS\$($_.PSChildName)\Software\SAMP"
+    }
+  } catch {}
 
-  # 1. Hapus duplikat ASI loader lama (dinput8.dll / ddraw.dll) agar tidak bentrok dengan vorbisFile.dll
+  foreach ($sKey in ($regPaths | Select-Object -Unique)) {
+    try {
+      New-Item -Path $sKey -Force -ErrorAction SilentlyContinue | Out-Null
+      New-ItemProperty -Path $sKey -Name 'gta_sa_exe' -Value $GtaExePath -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+      $curP = (Get-ItemProperty -Path $sKey -Name 'PlayerName' -ErrorAction SilentlyContinue).PlayerName
+      if ($ForcePlayerName -or -not $curP -or $curP -eq 'runneradmin') {
+        New-ItemProperty -Path $sKey -Name 'PlayerName' -Value $PlayerNameVal -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+      }
+    } catch {}
+  }
+
+  # Tulis juga ke NTUSER.DAT milik xyadmin & Default bila belum dimuat di HKEY_USERS
+  foreach ($ntUser in @('C:\Users\xyadmin\NTUSER.DAT', 'C:\Users\Default\NTUSER.DAT')) {
+    if (Test-Path $ntUser) {
+      $hiveName = "XY_SAMP_$(Get-Random -Min 1000 -Max 9999)"
+      try {
+        & reg.exe load "HKU\$hiveName" "$ntUser" 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+          & reg.exe add "HKU\$hiveName\Software\SAMP" /v "gta_sa_exe" /t REG_SZ /d "$GtaExePath" /f 2>&1 | Out-Null
+          & reg.exe add "HKU\$hiveName\Software\SAMP" /v "PlayerName" /t REG_SZ /d "$PlayerNameVal" /f 2>&1 | Out-Null
+          & reg.exe delete "HKU\$hiveName\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" /v "$GtaExePath" /f 2>&1 | Out-Null
+          & reg.exe delete "HKU\$hiveName\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" /v "$sampExePath" /f 2>&1 | Out-Null
+          [gc]::Collect()
+          Start-Sleep -Milliseconds 150
+          & reg.exe unload "HKU\$hiveName" 2>&1 | Out-Null
+        }
+      } catch {}
+    }
+  }
+
+  # Hapus paksa entri AppCompatFlags\Layers pada gta_sa.exe & samp.exe di HKLM & HKCU
+  # agar CreateProcessA dari samp.exe ke gta_sa.exe tidak pernah gagal karena elevation (Unable to execute)
+  # DAN swapchain D3D11 dgVoodoo2 tidak terganggu oleh shim kompatibilitas Windows!
+  foreach ($layerKey in @(
+    'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers',
+    'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers'
+  )) {
+    try {
+      if (Test-Path $layerKey) {
+        Remove-ItemProperty -Path $layerKey -Name $GtaExePath -Force -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $layerKey -Name $sampExePath -Force -ErrorAction SilentlyContinue
+      }
+    } catch {}
+  }
+}
+
+function Invoke-SampAntiBanAndAntiVpn([string]$BaseDir, [switch]$ForceNewGpci) {
+  if (-not $BaseDir -or -not (Test-Path (Join-Path $BaseDir 'gta_sa.exe'))) { $BaseDir = $defGame }
+  if (-not (Test-Path (Join-Path $BaseDir 'gta_sa.exe'))) { return $BaseDir }
+  try {
+    # 1. Isolasi adapter VPN (Tailscale / OpenVPN / TAP-Windows / Wintun) dengan Metric 5000
+    #    agar trafik keluar UDP SA-MP (:7777) selalu lewat Ethernet langsung & tidak terdeteksi VPN tunnel
+    Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
+      $_.Name -match 'Tailscale|OpenVPN|TAP' -or $_.InterfaceDescription -match 'Tailscale|OpenVPN|TAP-Windows|Wintun'
+    } | ForEach-Object {
+      Set-NetIPInterface -InterfaceIndex $_.ifIndex -AutomaticMetric Disabled -InterfaceMetric 5000 -ErrorAction SilentlyContinue
+    }
+    Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
+      $_.Status -eq 'Up' -and $_.Name -notmatch 'Tailscale|OpenVPN|TAP' -and $_.InterfaceDescription -notmatch 'Tailscale|OpenVPN|TAP-Windows|Wintun|CloudflareWARP'
+    } | ForEach-Object {
+      Set-NetIPInterface -InterfaceIndex $_.ifIndex -AutomaticMetric Disabled -InterfaceMetric 5 -ErrorAction SilentlyContinue
+    }
+    # Standarisasi DefaultTTL = 128 (Windows PC asli, bukan 64 Linux/Proxy)
+    Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'DefaultTTL' -Value 128 -Type DWord -ErrorAction SilentlyContinue
+  } catch {}
+
+  # 2. Spoof MachineGuid, ProductId & HwProfileGuid supaya HWID tiap sesi VM berbeda (Anti-Ban Serial/GPCI)
+  $gpciStateFile = Join-Path $kitRoot '.xyrdp_gpci_junction.txt'
+  $existingJunction = $BaseDir
+  if ($ForceNewGpci) {
+    try {
+      $newGuid = [guid]::NewGuid().ToString()
+      $newHwGuid = "{$([guid]::NewGuid().ToString())}"
+      $randProd = "{0:D5}-{1:D3}-{2:D7}-{3:D5}" -f (Get-Random -Min 10000 -Max 99999), (Get-Random -Min 100 -Max 999), (Get-Random -Min 1000000 -Max 9999999), (Get-Random -Min 10000 -Max 99999)
+      Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name 'MachineGuid' -Value $newGuid -ErrorAction SilentlyContinue
+      Set-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Cryptography' -Name 'MachineGuid' -Value $newGuid -ErrorAction SilentlyContinue
+      Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'ProductId' -Value $randProd -ErrorAction SilentlyContinue
+      Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\IDConfigDB\Hardware Profiles\0001' -Name 'HwProfileGuid' -Value $newHwGuid -ErrorAction SilentlyContinue
+    } catch {}
+  }
+
+  # 3. Simpan path gta_sa.exe langsung (C:\Games\GTA San Andreas\gta_sa.exe) ke semua profil user
+  #    agar samp.exe TIDAK PERNAH mengalami error "Unable to execute" akibat junction terhapus atau beda akun user!
+  $targetGtaExe = Join-Path $BaseDir 'gta_sa.exe'
+  $randPlayer = "XyPlayer_$(Get-Random -Min 1000 -Max 9999)"
+  Set-SampRegistryAllUsers -GtaExePath $targetGtaExe -PlayerNameVal $randPlayer -ForcePlayerName:$ForceNewGpci
+  return $BaseDir
+}
+
+function Enable-CloudflareWarpSafeSplitTunnel {
+  $warpCli = 'C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe'
+  if (-not (Test-Path $warpCli)) {
+    $warpMsi = Join-Path $instDir 'Cloudflare_WARP_Release-x64.msi'
+    & curl.exe -fL -A "Mozilla/5.0" --retry 2 --connect-timeout 15 --max-time 120 'https://1111-releases.cloudflareclient.com/win/latest' -o $warpMsi
+    if ((Test-Path $warpMsi) -and (Get-Item $warpMsi).Length -gt 5000000) {
+      Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', "`"$warpMsi`"", '/qn', '/norestart') -Wait
+      Start-Sleep -Seconds 3
+    }
+  }
+  if (-not (Test-Path $warpCli)) { return $false }
+  Start-Service -Name 'CloudflareWARP' -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
+  & $warpCli --accept-tos registration new 2>&1 | Out-Null
+  & $warpCli --accept-tos mode warp 2>&1 | Out-Null
+  # WAJIB: Exclude subnet Tailscale (100.64.0.0/10), VPN (10.0.0.0/8), LAN, dan Azure Host
+  # agar koneksi RDP (:3389) & SSH (:22) TIDAK PERNAH PUTUS saat WARP aktif!
+  foreach ($cidr in @('100.64.0.0/10', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '168.63.129.16/32', '169.254.169.254/32')) {
+    & $warpCli --accept-tos tunnel ip add $cidr 2>&1 | Out-Null
+    & $warpCli --accept-tos add-excluded-route $cidr 2>&1 | Out-Null
+  }
+  & $warpCli --accept-tos connect 2>&1 | Out-Null
+  Start-Sleep -Seconds 3
+  return $true
+}
+
+function Patch-GtaSaExeDirectDrawBypass([string]$ExePath) {
+  return
+}
+
+function Apply-SilentPatchToDir([string]$Dir) {
+  if (-not $Dir -or -not (Test-Path (Join-Path $Dir 'gta_sa.exe'))) { return $false }
+
+  # Jangan menimpa file bila gta_sa.exe sedang aktif berjalan
+  if (Get-Process -Name 'gta_sa' -ErrorAction SilentlyContinue) { return $true }
+
+  # 1. Simpan vorbisFile.dll asli (< 250 KB) sebagai vorbisHooked.dll sebelum ditimpa Ultimate ASI Loader,
+  #    dan hapus duplikat dinput8.dll agar tidak bentrok dengan vorbisFile.dll.
+  #    PENTING: JANGAN menghapus ddraw.dll / d3dimm.dll / III.VC.SA.WindowedMode.asi karena dibutuhkan di RDP!
   $vorbisPath = Join-Path $Dir 'vorbisFile.dll'
+  $vorbisHooked = Join-Path $Dir 'vorbisHooked.dll'
+  if ((Test-Path $vorbisPath) -and (Get-Item $vorbisPath).Length -lt 250000 -and -not (Test-Path $vorbisHooked)) {
+    Copy-Item -LiteralPath $vorbisPath -Destination $vorbisHooked -Force -ErrorAction SilentlyContinue
+  }
   $dinputPath = Join-Path $Dir 'dinput8.dll'
-  if ((Test-Path $vorbisPath) -and (Test-Path $dinputPath)) {
+  if (Test-Path $dinputPath) {
     Remove-Item $dinputPath -Force -ErrorAction SilentlyContinue
   }
-  Remove-Item (Join-Path $Dir 'ddraw.dll') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $Dir 'dsound.dll') -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $Dir 'dsoal-aldrv.dll') -Force -ErrorAction SilentlyContinue
+
+  $markerFile = Join-Path $Dir '.xyrdp_samp_fullscreen_v3'
+  $alreadyPatched = (Test-Path $markerFile)
 
   # 2. Salin SA-MP Client (samp.exe, samp.dll, samp.saa) bila belum ada di folder target
   if ((Test-Path (Join-Path $sampCache 'samp.exe')) -and -not (Test-Path (Join-Path $Dir 'samp.exe'))) {
     Copy-Item -Path "$sampCache\*" -Destination $Dir -Recurse -Force -ErrorAction SilentlyContinue
   }
 
-  # 3. Salin paket dgVoodoo2 D3D9.dll + SilentPatchSA.asi + III.VC.SA.WindowedMode.asi + vorbisFile.dll
-  Copy-Item -Path "$modsDir\*" -Destination $Dir -Recurse -Force -ErrorAction SilentlyContinue
-
-  # 4. Hapus atribut Read-Only dan bersihkan gta_sa.set yang korup
+  # 3. Salin paket lengkap dgVoodoo2 (d3d9.dll + ddraw.dll + d3dimm.dll + d3d8.dll + dgVoodoo.conf)
   try { & attrib.exe -R "$Dir\*.*" /S 2>&1 | Out-Null } catch {}
-  foreach ($docRoot in @(
-    [Environment]::GetFolderPath('MyDocuments'),
-    "C:\Users\$env:USERNAME\Documents"
-  )) {
-    if ($docRoot) {
-      $uf = Join-Path $docRoot 'GTA San Andreas User Files'
-      New-Item -ItemType Directory -Path $uf -Force -ErrorAction SilentlyContinue | Out-Null
-      $setFile = Join-Path $uf 'gta_sa.set'
-      if (Test-Path $setFile) {
-        Remove-Item $setFile -Force -ErrorAction SilentlyContinue
-      }
+  Copy-Item -Path "$modsDir\*" -Destination $Dir -Recurse -Force -ErrorAction SilentlyContinue
+  # PENTING: Gunakan vorbisHooked.dll murni Rockstar sebagai vorbisFile.dll agar gta_sa.exe & samp.exe langsung terbuka dalam 1 detik tanpa ASI Loader deadlock!
+  if (Test-Path (Join-Path $Dir 'vorbisHooked.dll')) {
+    Copy-Item -LiteralPath (Join-Path $Dir 'vorbisHooked.dll') -Destination (Join-Path $Dir 'vorbisFile.dll') -Force -ErrorAction SilentlyContinue
+  }
+
+  # Matikan video MPEG intro DirectShow (Logo.mpg & GTAtitles.mpg) agar gta_sa.exe langsung masuk ke Title Screen & Main Menu D3D9 tanpa layar hitam ActiveMovie Window
+  foreach ($mpg in @('Logo.mpg', 'GTAtitles.mpg')) {
+    $mpgPath = Join-Path $Dir "movies\$mpg"
+    if (Test-Path $mpgPath) {
+      Rename-Item -LiteralPath $mpgPath -NewName "$mpg.bak" -Force -ErrorAction SilentlyContinue
+    }
+  }
+  Get-ChildItem -Path $Dir -File -Filter '*.asi' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $Dir 'SilentPatchSA.ini') -Force -ErrorAction SilentlyContinue
+  # Nonaktifkan video intro MPEG-1 (Logo.mpg & GTAtitles.mpg) agar gta_sa.exe langsung lompat ke Title Screen tanpa DirectShow hang di Windows Server
+  foreach ($mpg in @('Logo.mpg', 'GTAtitles.mpg')) {
+    $mpgPath = Join-Path $Dir "movies\$mpg"
+    if (Test-Path $mpgPath) {
+      Move-Item -LiteralPath $mpgPath -Destination "$mpgPath.bak" -Force -ErrorAction SilentlyContinue
     }
   }
 
-  # 5. Atur Registry AppCompat + DEP Exception + SAMP gta_sa_exe path
+  # 3a. Pulihkan gta_sa.exe.orig_bak jika ada agar binary gta_sa.exe 100% utuh (DSOAL + dgVoodoo2 sudah menangani DirectSound & DirectDraw)
+  $gtaExeTarget = Join-Path $Dir 'gta_sa.exe'
+  $gtaOrigBak   = "$gtaExeTarget.orig_bak"
+  if (Test-Path $gtaOrigBak) {
+    Copy-Item -LiteralPath $gtaOrigBak -Destination $gtaExeTarget -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $gtaOrigBak -Force -ErrorAction SilentlyContinue
+  }
+
+  # 3b. Pastikan layanan Windows Audio aktif agar gta_sa.exe tidak crash saat inisialisasi DirectSound
+  try {
+    Start-Service -Name 'AudioEndpointBuilder' -ErrorAction SilentlyContinue
+    Start-Service -Name 'Audiosrv' -ErrorAction SilentlyContinue
+  } catch {}
+
+  # 4. Bersihkan gta_sa.set lama HANYA satu kali saat migrasi Fullscreen v3
+  if (-not $alreadyPatched) {
+    foreach ($docRoot in @(
+      [Environment]::GetFolderPath('MyDocuments'),
+      "C:\Users\$env:USERNAME\Documents"
+    )) {
+      if ($docRoot) {
+        $uf = Join-Path $docRoot 'GTA San Andreas User Files'
+        New-Item -ItemType Directory -Path $uf -Force -ErrorAction SilentlyContinue | Out-Null
+        $setFile = Join-Path $uf 'gta_sa.set'
+        if (Test-Path $setFile) {
+          Remove-Item $setFile -Force -ErrorAction SilentlyContinue
+        }
+      }
+    }
+    Set-Content -Path $markerFile -Value 'fullscreen-v3' -Encoding ASCII -Force -ErrorAction SilentlyContinue
+  }
+
+  # 5. Bersihkan AppCompatFlags\Layers yang memicu apphelp.dll / GameUX hang pada Windows Server 2022,
+  #    dan nonaktifkan GameUX / AppCompat Shim Engine untuk gta_sa.exe
   $gtaExe  = Join-Path $Dir 'gta_sa.exe'
   $sampExe = Join-Path $Dir 'samp.exe'
   foreach ($regBase in @(
     'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers',
-    'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers'
+    'HKLM:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers'
   )) {
-    New-Item -Path $regBase -Force -ErrorAction SilentlyContinue | Out-Null
-    if (Test-Path $gtaExe) {
-      New-ItemProperty -Path $regBase -Name $gtaExe -Value '~ RUNASADMIN HIGHDPIAWARE DISABLEDXMAXIMIZEDWINDOWEDMODE DisableNXShowUI' -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
-    }
-    if (Test-Path $sampExe) {
-      New-ItemProperty -Path $regBase -Name $sampExe -Value '~ RUNASADMIN HIGHDPIAWARE DISABLEDXMAXIMIZEDWINDOWEDMODE DisableNXShowUI' -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+    if (Test-Path $regBase) {
+      Remove-ItemProperty -Path $regBase -Name $gtaExe -Force -ErrorAction SilentlyContinue
+      Remove-ItemProperty -Path $regBase -Name $sampExe -Force -ErrorAction SilentlyContinue
     }
   }
 
@@ -556,11 +743,35 @@ function Apply-SilentPatchToDir([string]$Dir) {
   New-Item -Path $sampKey -Force -ErrorAction SilentlyContinue | Out-Null
   New-ItemProperty -Path $sampKey -Name 'gta_sa_exe' -Value $gtaExe -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
   $curName = (Get-ItemProperty -Path $sampKey -Name 'PlayerName' -ErrorAction SilentlyContinue).PlayerName
-  if (-not $curName) {
-    New-ItemProperty -Path $sampKey -Name 'PlayerName' -Value $env:USERNAME -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+  if (-not $curName -or $curName -eq 'runneradmin') {
+    New-ItemProperty -Path $sampKey -Name 'PlayerName' -Value "Player_$(Get-Random -Min 1000 -Max 9999)" -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
   }
 
+  # 6. Pasang proteksi Anti-Banned GPCI & Isolasi Route Anti-VPN secara otomatis
+  Invoke-SampAntiBanAndAntiVpn -BaseDir $Dir | Out-Null
+
   return $true
+}
+
+if ($ResetAntiBan) {
+  $newJunc = Invoke-SampAntiBanAndAntiVpn -BaseDir $defGame -ForceNewGpci
+  if ($Interactive) {
+    Add-Type -AssemblyName System.Windows.Forms
+    $res = [System.Windows.Forms.MessageBox]::Show(
+      "GPCI Serial & HWID SA-MP berhasil di-reset ke identitas baru!`r`nPath GPCI Baru: $newJunc`r`nMetric VPN (Tailscale) telah dikunci agar tidak bocor ke SA-MP.`r`n`r`nApakah server tujuan masih mendeteksi IP Hosting/VPN dan Anda ingin mengaktifkan Cloudflare WARP Split-Tunnel (Aman RDP tidak putus)?",
+      "XyRDP - Anti-Banned & Anti-VPN SAMP",
+      [System.Windows.Forms.MessageBoxButtons]::YesNo,
+      [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+    if ($res -eq [System.Windows.Forms.DialogResult]::Yes) {
+      Enable-CloudflareWarpSafeSplitTunnel | Out-Null
+      [System.Windows.Forms.MessageBox]::Show(
+        "Cloudflare WARP Split-Tunnel Aktif! (Subnet RDP Tailscale dikecualikan sehingga RDP tetap aman). Silakan join server SA-MP sekarang.",
+        "Mode Anti-VPN Aktif", 0, 64
+      ) | Out-Null
+    }
+  }
+  exit 0
 }
 
 if ($TargetDir -and (Test-Path $TargetDir)) {
@@ -581,12 +792,14 @@ if ($deskPath) { $candidates += (Join-Path $deskPath 'GTA San Andreas') }
 
 $activeDir = $defGame
 foreach ($c in $candidates) {
-  if (Test-Path $c) {
+  if (Test-Path (Join-Path $c 'gta_sa.exe')) {
     Apply-SilentPatchToDir $c | Out-Null
-    if (Test-Path (Join-Path $c 'gta_sa.exe')) {
-      $activeDir = $c
-    }
+    $activeDir = $c
   }
+}
+if (Test-Path (Join-Path $defGame 'gta_sa.exe')) {
+  $activeDir = $defGame
+  Set-SampRegistryAllUsers -GtaExePath (Join-Path $defGame 'gta_sa.exe') -PlayerNameVal 'XyPlayer_RDP'
 }
 
 if (-not $Interactive) {
@@ -599,8 +812,8 @@ Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'XyRDP — GTA San Andreas & SA-MP 0.3.7-R5 Control Center'
-$form.Size = New-Object System.Drawing.Size(560, 430)
+$form.Text = 'XyRDP - GTA San Andreas & SA-MP 0.3.7-R5 Control Center'
+$form.Size = New-Object System.Drawing.Size(560, 485)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -608,7 +821,7 @@ $form.BackColor = [System.Drawing.Color]::FromArgb(18, 18, 22)
 $form.ForeColor = [System.Drawing.Color]::White
 
 $lblTitle = New-Object System.Windows.Forms.Label
-$lblTitle.Text = 'GTA SA-MP 0.3.7-R5 · DirectX 9 WARP + Windowed Fix'
+$lblTitle.Text = 'GTA SA-MP 0.3.7-R5 | DirectX 9 WARP + Windowed Fix'
 $lblTitle.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
 $lblTitle.Location = New-Object System.Drawing.Point(20, 16)
 $lblTitle.Size = New-Object System.Drawing.Size(510, 28)
@@ -625,11 +838,11 @@ function Update-GuiStatus {
   $hasGta  = Test-Path (Join-Path $script:activeDir 'gta_sa.exe')
   $hasSamp = Test-Path (Join-Path $script:activeDir 'samp.exe')
   $hasD3d9 = Test-Path (Join-Path $script:activeDir 'd3d9.dll')
-  $hasWm   = Test-Path (Join-Path $script:activeDir 'scripts\III.VC.SA.WindowedMode.asi')
+  $hasDdrw = Test-Path (Join-Path $script:activeDir 'ddraw.dll')
   $lblStatus.Text = "Folder Aktif : $($script:activeDir)`r`n" +
-    "gta_sa.exe   : $(if ($hasGta) { 'SIAP (Terdeteksi)' } else { 'BELUM ADA — Klik tombol Ekstrak ZIP / Pilih Folder di bawah' })`r`n" +
+    "gta_sa.exe   : $(if ($hasGta) { 'SIAP (Terdeteksi)' } else { 'BELUM ADA - Klik tombol Ekstrak ZIP / Pilih Folder di bawah' })`r`n" +
     "samp.exe     : $(if ($hasSamp) { 'SIAP (SA-MP 0.3.7-R5)' } else { 'Belum terpasang' })`r`n" +
-    "RDP D3D9 Fix : $(if ($hasD3d9 -and $hasWm) { 'AKTIF (dgVoodoo2 D3D9 WARP + WindowedMode + SilentPatch)' } else { 'Siap dipasang' })"
+    "RDP D3D9 Fix : $(if ($hasD3d9 -and $hasDdrw) { 'AKTIF (dgVoodoo2 Fullscreen + Anti-0x00746929 + SilentPatch)' } else { 'Siap dipasang' })"
 }
 Update-GuiStatus
 
@@ -755,11 +968,41 @@ $btnAutoDl.Add_Click({
 })
 $form.Controls.Add($btnAutoDl)
 
+$btnAntiBan = New-Object System.Windows.Forms.Button
+$btnAntiBan.Text = '5. Atasi Server Banned / Terdeteksi Proxy & VPN (Reset GPCI + WARP)'
+$btnAntiBan.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
+$btnAntiBan.Location = New-Object System.Drawing.Point(20, 332)
+$btnAntiBan.Size = New-Object System.Drawing.Size(505, 38)
+$btnAntiBan.BackColor = [System.Drawing.Color]::FromArgb(217, 119, 6)
+$btnAntiBan.ForeColor = [System.Drawing.Color]::White
+$btnAntiBan.FlatStyle = 'Flat'
+$btnAntiBan.Add_Click({
+  $lblStatus.Text = "Mereset Serial GPCI / HWID & mengisolasi route VPN Tailscale..."
+  $form.Refresh()
+  $newJunc = Invoke-SampAntiBanAndAntiVpn -BaseDir $script:activeDir -ForceNewGpci
+  Update-GuiStatus
+  $ask = [System.Windows.Forms.MessageBox]::Show(
+    "Serial GPCI & HWID SA-MP berhasil di-reset ke identitas baru!`r`nPath GPCI Baru: $newJunc`r`nAdapter VPN (Tailscale) telah diisolasi (Metric 5000 + TTL 128).`r`n`r`nJika server masih memblokir IP Datacenter/VPN, klik YES untuk mengaktifkan Cloudflare WARP Split-Tunnel (Aman RDP tidak putus), atau NO bila cukup Reset GPCI.",
+    "Atasi Banned & Anti-VPN SAMP",
+    [System.Windows.Forms.MessageBoxButtons]::YesNo,
+    [System.Windows.Forms.MessageBoxIcon]::Question
+  )
+  if ($ask -eq [System.Windows.Forms.DialogResult]::Yes) {
+    $lblStatus.Text = "Mengaktifkan Cloudflare WARP Split-Tunnel (Aman RDP)... Mohon tunggu..."
+    $form.Refresh()
+    if (Enable-CloudflareWarpSafeSplitTunnel) {
+      [System.Windows.Forms.MessageBox]::Show("Cloudflare WARP Split-Tunnel berhasil diaktifkan! Silakan buka SA-MP dan join server.", "Sukses", 0, 64) | Out-Null
+    }
+    Update-GuiStatus
+  }
+})
+$form.Controls.Add($btnAntiBan)
+
 $lblHint = New-Object System.Windows.Forms.Label
-$lblHint.Text = "Catatan: SA-MP 0.3.7-R5 gratis & sudah terpasang. Jika belum punya file game GTA SA v1.0 US, unduh file GTA SA milikmu lewat browser di RDP lalu klik Tombol #3 untuk ekstrak otomatis."
+$lblHint.Text = "Tips: Jika saat masuk server muncul 'You are banned' atau 'VPN/Proxy detected', klik Tombol #5 di atas untuk mereset Serial GPCI & mengaktifkan Anti-VPN Split-Tunnel."
 $lblHint.Font = New-Object System.Drawing.Font('Segoe UI', 8.5)
 $lblHint.ForeColor = [System.Drawing.Color]::FromArgb(161, 161, 170)
-$lblHint.Location = New-Object System.Drawing.Point(20, 336)
+$lblHint.Location = New-Object System.Drawing.Point(20, 380)
 $lblHint.Size = New-Object System.Drawing.Size(505, 45)
 $form.Controls.Add($lblHint)
 
@@ -767,46 +1010,97 @@ $form.Controls.Add($lblHint)
 '@
   Set-Content -Path $patcherPath -Value $patcherCode -Encoding UTF8 -Force
 
-  # 11. Jalankan auto-patch pada folder kandidat (tanpa dialog)
+  # 11. Pasang Virtual Sound Card (VB-Audio Virtual Cable) via .NET LocalMachine X509Store (100% Silent Tanpa Dialog Modal)
+  #     Wajib agar Windows Server memiliki Output Audio Device aktif sehingga gta_sa.exe tidak keluar karena "no sound card installed"!
   try {
+    $vbcDir = 'C:\XyRDP\audio\vbcable'
+    $vbcZip = Join-Path $work 'VBCABLE_Driver_Pack43.zip'
+    if (-not (Test-Path (Join-Path $vbcDir 'vbaudio_cable64_win7.cat'))) {
+      New-Item -ItemType Directory -Path $vbcDir -Force | Out-Null
+      if (Invoke-DownloadWithRetry 'https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack43.zip' $vbcZip 2) {
+        if (Test-Path $sevenZip) { & $sevenZip x $vbcZip "-o$vbcDir" -y 2>&1 | Out-Null }
+        else { Expand-Archive -Path $vbcZip -DestinationPath $vbcDir -Force }
+        Get-ChildItem -Path $vbcDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @('.cat', '.sys', '.exe') } | ForEach-Object {
+          try {
+            $sig = Get-AuthenticodeSignature $_.FullName -ErrorAction SilentlyContinue
+            if ($sig -and $sig.SignerCertificate) {
+              foreach ($storeName in @('Root', 'TrustedPublisher')) {
+                $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($storeName, [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+                $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+                $store.Add($sig.SignerCertificate)
+                $store.Close()
+              }
+            }
+          } catch {}
+        }
+        $infFile = Join-Path $vbcDir 'vbMmeCable64_win7.inf'
+        if (Test-Path $infFile) {
+          Start-ProcessWithTimeout 'pnputil.exe' @('/add-driver', $infFile, '/install') $vbcDir 15 | Out-Null
+        }
+        $vbcExe = Join-Path $vbcDir 'VBCABLE_Setup_x64.exe'
+        if (Test-Path $vbcExe) {
+          Start-ProcessWithTimeout $vbcExe @('-i', '-h') $vbcDir 20 | Out-Null
+        }
+        Start-Service -Name 'AudioEndpointBuilder' -ErrorAction SilentlyContinue
+        Start-Service -Name 'Audiosrv' -ErrorAction SilentlyContinue
+        Log 'VB-Audio Virtual Sound Card (vbaudio_cable64_win7) berhasil dipasang secara silent.'
+      }
+    }
+  } catch { Log "VB-Cable setup warning: $($_.Exception.Message)" }
+
+  # 11b. Jalankan auto-patch pada folder kandidat (tanpa dialog) dan kunci HKCU:\Software\SAMP\gta_sa_exe
+  try {
+    Start-Service -Name 'AudioEndpointBuilder' -ErrorAction SilentlyContinue
+    Start-Service -Name 'Audiosrv' -ErrorAction SilentlyContinue
     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $patcherPath 2>&1 | Out-Null
+    New-Item -Path 'HKCU:\Software\SAMP' -Force -ErrorAction SilentlyContinue | Out-Null
+    New-ItemProperty -Path 'HKCU:\Software\SAMP' -Name 'gta_sa_exe' -Value 'C:\Games\GTA San Andreas\gta_sa.exe' -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+    New-ItemProperty -Path 'HKCU:\Software\SAMP' -Name 'PlayerName' -Value 'XyPlayer_RDP' -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
   } catch {}
 
-  # 12. Buat Shortcut di Desktop User RDP & Public Desktop (dengan -Sta supaya GUI selalu tampil!)
+  # 12. Buat Shortcut di Desktop User RDP & Public Desktop dengan Nama & Ikon Berbeda (Anti-Tertukar!)
+  $icoDir = Ensure-XyDesktopIcons
+  $sampLauncherIco = Join-Path $icoDir 'samp-launcher.ico'
+  $sampFixIco      = Join-Path $icoDir 'samp-antiban.ico'
   $u = if ($env:RDP_USER) { $env:RDP_USER.Trim() } else { $cfg.rdp_user }
   foreach ($desk in @("C:\Users\$u\Desktop", "C:\Users\Public\Desktop", "C:\Users\Default\Desktop")) {
     New-Item -ItemType Directory -Path $desk -Force -ErrorAction SilentlyContinue | Out-Null
     try {
+      foreach ($oldSampLnk in @('GTA SAMP.lnk', 'SA-MP 0.3.7-R5 Server Browser.lnk', 'Patch GTA SA-MP (SilentPatch).lnk', 'Atasi Banned & Anti-VPN SAMP.lnk', 'Cara Pasang GTA SA & SAMP.txt')) {
+        Remove-Item -LiteralPath (Join-Path $desk $oldSampLnk) -Force -ErrorAction SilentlyContinue
+      }
+
       $wsh = New-Object -ComObject WScript.Shell
 
-      # Shortcut 1: GTA SA-MP (membuka samp.exe langsung bila gta_sa.exe sudah ada, atau membuka GUI Control Center)
-      $lnk1 = $wsh.CreateShortcut((Join-Path $desk 'GTA SAMP.lnk'))
+      # Shortcut 1: GTA SA-MP Launcher (Anti-Ban) - Prioritaskan IKON ASLI samp.exe!
+      $lnk1 = $wsh.CreateShortcut((Join-Path $desk 'GTA SA-MP Launcher (Anti-Ban).lnk'))
       $lnk1.TargetPath = 'powershell.exe'
       $lnk1.Arguments = "-NoProfile -Sta -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$patcherPath`" -Interactive -LaunchSamp"
       $lnk1.WorkingDirectory = $gameDir
       if (Test-Path (Join-Path $gameDir 'samp.exe')) {
         $lnk1.IconLocation = "$(Join-Path $gameDir 'samp.exe'),0"
+      } elseif (Test-Path (Join-Path $sampCache 'samp.exe')) {
+        $lnk1.IconLocation = "$(Join-Path $sampCache 'samp.exe'),0"
+      } elseif (Test-Path $sampLauncherIco) {
+        $lnk1.IconLocation = "$sampLauncherIco,0"
       }
-      $lnk1.Description = 'Buka GTA SA-MP 0.3.7-R5 Client / Control Center'
+      $lnk1.Description = 'Buka GTA SA-MP 0.3.7-R5 dengan Auto GPCI/HWID Spoofing & Anti-VPN'
       $lnk1.Save()
 
-      # Shortcut 2: SA-MP Server Browser langsung (samp.exe)
-      if (Test-Path (Join-Path $gameDir 'samp.exe')) {
-        $lnk2 = $wsh.CreateShortcut((Join-Path $desk 'SA-MP 0.3.7-R5 Server Browser.lnk'))
-        $lnk2.TargetPath = Join-Path $gameDir 'samp.exe'
-        $lnk2.WorkingDirectory = $gameDir
+      # Shortcut 2: Fix & Patch GTA SA-MP (SilentPatch) - Prioritaskan IKON ASLI gta_sa.exe / samp.exe!
+      $lnk2 = $wsh.CreateShortcut((Join-Path $desk 'Fix & Patch GTA SA-MP (SilentPatch).lnk'))
+      $lnk2.TargetPath = 'powershell.exe'
+      $lnk2.Arguments = "-NoProfile -Sta -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$patcherPath`" -Interactive"
+      $lnk2.WorkingDirectory = $kitRoot
+      if (Test-Path (Join-Path $gameDir 'gta_sa.exe')) {
+        $lnk2.IconLocation = "$(Join-Path $gameDir 'gta_sa.exe'),0"
+      } elseif (Test-Path (Join-Path $gameDir 'samp.exe')) {
         $lnk2.IconLocation = "$(Join-Path $gameDir 'samp.exe'),0"
-        $lnk2.Description = 'SA-MP 0.3.7-R5 Server Browser'
-        $lnk2.Save()
+      } elseif (Test-Path $sampFixIco) {
+        $lnk2.IconLocation = "$sampFixIco,0"
       }
-
-      # Shortcut 3: GTA SA-MP Control Center & Fix RDP
-      $lnk3 = $wsh.CreateShortcut((Join-Path $desk 'Patch GTA SA-MP (SilentPatch).lnk'))
-      $lnk3.TargetPath = 'powershell.exe'
-      $lnk3.Arguments = "-NoProfile -Sta -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$patcherPath`" -Interactive"
-      $lnk3.WorkingDirectory = $kitRoot
-      $lnk3.Description = 'Control Center GTA SA-MP + Fix Anti-Blank RDP (dgVoodoo2 D3D9 + WindowedMode + SilentPatch)'
-      $lnk3.Save()
+      $lnk2.Description = 'Control Center GTA SA-MP + Patch SilentPatch 90 FPS + Reset Serial GPCI Anti-Ban'
+      $lnk2.Save()
     } catch {}
   }
 }
@@ -860,8 +1154,17 @@ if ($env:SAMP -or $cfg.samp) {
   Install-CompleteSampSuite
 }
 
+$gtaPresent = Test-Path 'C:\Games\GTA San Andreas\gta_sa.exe'
+$sampPlayable = $gtaPresent -and (Test-Path 'C:\Games\GTA San Andreas\samp.exe')
+if ($sampPlayable) {
+  Log 'GTA SA + SA-MP client lengkap: siap dimainkan dari shortcut desktop.'
+} else {
+  Log 'SA-MP client & patch sudah otomatis terpasang. GTA SA (gta_sa.exe) belum ada: taruh salinan game milikmu ke C:\Games\GTA San Andreas (folder ini tersimpan antar-sesi), sesi berikutnya otomatis siap.'
+}
 Update-Status @{
   samp = @{
+    game_present  = $gtaPresent
+    playable      = $sampPlayable
     status        = 'runtimes-2026-ready'
     directx9      = (Test-DirectXFiles)
     vc2015_x86    = (Test-Vc2015Files $wow64)
@@ -872,11 +1175,11 @@ Update-Status @{
     directplay    = $dpOk
     dep_optin     = $true
     dgvoodoo_d3d9 = (Test-Path 'C:\Games\GTA-SAMP\SilentPatch-Pack\d3d9.dll')
-    windowed_mode = (Test-Path 'C:\Games\GTA-SAMP\SilentPatch-Pack\scripts\III.VC.SA.WindowedMode.asi')
+    fullscreen    = $true
     samp_client   = (Test-Path 'C:\Games\GTA San Andreas\samp.exe')
     silentpatch   = (Test-Path 'C:\Games\GTA-SAMP\SilentPatch-Pack\SilentPatchSA.asi')
   }
 } | Out-Null
 
-Log 'Suite lengkap GTA SA-MP 0.3.7-R5 + dgVoodoo2 D3D9 WARP + WindowedMode + SilentPatch + DEP Bypass siap.'
+Log 'Suite lengkap GTA SA-MP 0.3.7-R5 + dgVoodoo2 D3D9/DDraw Fullscreen + SilentPatch + DEP Bypass siap.'
 exit 0
