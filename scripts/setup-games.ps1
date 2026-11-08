@@ -177,7 +177,7 @@ function Install-PrismLauncherPortable {
             "profile": {
                 "capes": [],
                 "id": "8667ba71b85a4004af54457a9734eed7",
-                "name": "XyPlayer_RDP",
+                "name": "Dzenn",
                 "skin": {
                     "id": "",
                     "url": "",
@@ -289,12 +289,12 @@ function Configure-MinecraftOpenGLAndOptions {
         'autoJump:false'
         'enableVsync:false'
         'maxFps:120'
-        'renderDistance:8'
-        'simulationDistance:6'
+        'renderDistance:3'
+        'simulationDistance:5'
         'graphicsMode:0'
         'ao:false'
         'Clouds:false'
-        'particles:1'
+        'particles:0'
         'mipmapLevels:0'
         'rawMouseInput:true'
         'fullscreen:false'
