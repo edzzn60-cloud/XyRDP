@@ -437,6 +437,15 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
+      - name: Rename tampilan CPU/GPU (cosmetic)
+        if: ${{ (inputs.hardware_name || 'tidak') == 'ya' }}
+        shell: pwsh
+        continue-on-error: true
+        env:
+          XY_CPU_NAME: ${{ inputs.cpu_name || 'Intel(R) Core(TM) i9-14900K @ 3.20GHz' }}
+          XY_GPU_NAME: ${{ inputs.gpu_name || 'NVIDIA GeForce RTX 4090' }}
+        run: ./scripts/setup-hardware-name.ps1
+
       - name: Finalize (matikan sesi + bersihkan status)
         if: ${{ always() && !startsWith(inputs.runner || 'windows-2022', 'ubuntu') }}
         shell: pwsh
