@@ -8,7 +8,7 @@
 #         dengan satu pilihan agar dashboard & kontrak lama tetap kompatibel.
 #         Runtime dibagi cepat/penuh (input runtimes, default auto) + cache
 #         installer (actions/cache) supaya setup sesi jauh lebih cepat.
-name: RdpFree — RDP 6 Jam
+name: RdpFree - RDP 6 Jam
 on:
   workflow_dispatch:
     inputs:
