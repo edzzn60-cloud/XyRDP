@@ -1,35 +1,8 @@
 # rdpfree-workflow-schema: 5
-# 1.1.28: tambah fps_boost, samp_antiban, mumu, portmap_host/portmap_port,
-#         dan opsi akses portmap/railway. Penanda skema sengaja tetap 5 supaya
-#         kontrak web-next/src/lib/workflow-contract.ts tetap menerima workflow.
-#         Input baru semuanya required:false, jadi repo lama tetap kompatibel.
-# 1.1.29: tunnel Tailscale only. Opsi portmap/railway dihapus (sesuai arahan
-#         pemilik: "Untuk Tunnel cukup tailscale only"). Input akses tetap ada
-#         dengan satu pilihan agar dashboard & kontrak lama tetap kompatibel.
-#         Runtime dibagi cepat/penuh (input runtimes, default auto) + cache
-#         installer (actions/cache) supaya setup sesi jauh lebih cepat.
 name: RdpFree - RDP 6 Jam
 on:
   workflow_dispatch:
     inputs:
-      hardware_name:
-        description: 'Rename tampilan CPU/GPU (cosmetic, bukan anti-cheat)'
-        required: false
-        default: 'tidak'
-        type: choice
-        options:
-          - 'ya'
-          - 'tidak'
-      cpu_name:
-        description: 'Nama CPU pengganti (kosongkan = default)'
-        required: false
-        default: 'Intel(R) Core(TM) i9-14900K @ 3.20GHz'
-        type: string
-      gpu_name:
-        description: 'Nama GPU pengganti (kosongkan = default)'
-        required: false
-        default: 'NVIDIA GeForce RTX 4090'
-        type: string
       durasi_menit:
         description: 'Durasi sesi (menit, 10-360)'
         required: false
@@ -70,7 +43,7 @@ on:
           - full
           - tidak
       runtimes:
-        description: 'Runtime VC++/DirectX/.NET (auto = penuh hanya bila SA-MP dipilih; cepat = VC++ 2010-2022)'
+        description: 'Runtime VC++/DirectX/.NET'
         required: false
         default: 'auto'
         type: choice
@@ -95,7 +68,7 @@ on:
           - ya
           - tidak
       fps_boost:
-        description: 'Boost FPS: power plan, RDP 60Hz, DWM, Game Mode, prioritas CPU'
+        description: 'Boost FPS: power plan, RDP 60Hz, DWM, Game Mode'
         required: false
         default: 'ya'
         type: choice
@@ -103,7 +76,7 @@ on:
           - ya
           - tidak
       mumu:
-        description: 'Pasang MuMu Player 12 (emulator Android) + shortcut desktop'
+        description: 'Pasang MuMu Player 12'
         required: false
         default: 'tidak'
         type: choice
@@ -119,7 +92,7 @@ on:
           - ya
           - tidak
       xydesk:
-        description: 'Aktifkan optimasi host XyDesk Remote (AVC444 + ClearType + audio)'
+        description: 'Aktifkan optimasi host XyDesk Remote'
         required: false
         default: 'ya'
         type: choice
@@ -127,7 +100,7 @@ on:
           - ya
           - tidak
       ekstra:
-        description: 'Pasang aplikasi ekstra (7-Zip, Chrome, Lightshot, wallpaper)'
+        description: 'Pasang aplikasi ekstra (7-Zip, Chrome, dll)'
         required: false
         default: 'ya'
         type: choice
@@ -135,7 +108,7 @@ on:
           - ya
           - tidak
       grafis:
-        description: 'Akselerasi OpenGL 4.6 D3D12 (Mesa3D untuk Minecraft & Game)'
+        description: 'Akselerasi OpenGL 4.6 D3D12'
         required: false
         default: 'software'
         type: choice
@@ -143,7 +116,7 @@ on:
           - software
           - tidak
       runner:
-        description: 'OS & Image Runner (Windows / Linux Desktop / Linux Polos)'
+        description: 'OS & Image Runner'
         required: false
         default: 'windows-2022'
         type: choice
@@ -155,7 +128,7 @@ on:
           - ubuntu-22.04
           - ubuntu-latest
       linux_mode:
-        description: 'Mode Linux (desktop = XFCE4 GUI XRDP :3389, polos = Server SSH Tanpa XFCE4 :22/:3389)'
+        description: 'Mode Linux'
         required: false
         default: 'desktop'
         type: choice
@@ -163,7 +136,7 @@ on:
           - desktop
           - polos
       microphone:
-        description: 'Aktifkan redireksi mikrofon & kamera RDP'
+        description: 'Aktifkan redireksi mikrofon & kamera'
         required: false
         default: 'ya'
         type: choice
@@ -179,7 +152,7 @@ on:
           - ya
           - tidak
       minecraft_java:
-        description: 'Pasang Minecraft Java + JDK 21/JRE 8 + OpenGL 4.6 D3D12'
+        description: 'Pasang Minecraft Java'
         required: false
         default: 'tidak'
         type: choice
@@ -187,7 +160,7 @@ on:
           - ya
           - tidak
       minecraft_bedrock:
-        description: 'Pasang Minecraft Launcher (Bedrock)'
+        description: 'Pasang Minecraft Launcher'
         required: false
         default: 'tidak'
         type: choice
@@ -195,7 +168,7 @@ on:
           - ya
           - tidak
       perpanjang_otomatis:
-        description: 'Lanjutkan otomatis ke sesi berikutnya saat waktu habis (data tetap utuh)'
+        description: 'Lanjutkan otomatis ke sesi berikutnya'
         required: false
         default: 'ya'
         type: choice
@@ -255,9 +228,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ======================================================================
-      # JALUR LINUX DESKTOP RDP / LINUX POLOS SSH VPS (Ubuntu 24.04 / 22.04 / Latest)
-      # ======================================================================
       - name: Setup dasar RDP & Akses Linux (XRDP :3389 / SSH :22 + Tailscale)
         if: ${{ startsWith(inputs.runner || 'windows-2022', 'ubuntu') }}
         shell: bash
@@ -265,20 +235,17 @@ jobs:
           chmod +x ./scripts/setup-linux-rdp.sh
           ./scripts/setup-linux-rdp.sh --setup-only
 
-      - name: Jaga sesi tetap hidup (keepalive + auto-checkpoint 15m) [Linux]
+      - name: Jaga sesi tetap hidup [Linux]
         if: ${{ startsWith(inputs.runner || 'windows-2022', 'ubuntu') }}
         shell: bash
         run: ./scripts/setup-linux-rdp.sh --keepalive-only
 
-      - name: Finalize (matikan sesi + bersihkan status) [Linux]
+      - name: Finalize [Linux]
         if: ${{ always() && startsWith(inputs.runner || 'windows-2022', 'ubuntu') }}
         shell: bash
         continue-on-error: true
         run: ./scripts/setup-linux-rdp.sh --finalize-only
 
-      # ======================================================================
-      # JALUR WINDOWS DESKTOP RDP (Windows Server 2022 / 2025 / Latest)
-      # ======================================================================
       - name: Bersihkan run lama
         if: ${{ !startsWith(inputs.runner || 'windows-2022', 'ubuntu') }}
         shell: pwsh
@@ -434,15 +401,6 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-      - name: Rename tampilan CPU/GPU (cosmetic)
-        if: ${{ inputs.hardware_name == 'ya' }}
-        shell: pwsh
-        continue-on-error: true
-        env:
-          XY_CPU_NAME: ${{ inputs.cpu_name }}
-          XY_GPU_NAME: ${{ inputs.gpu_name }}
-        run: ./scripts/setup-hardware-name.ps1
-
       - name: Finalize (matikan sesi + bersihkan status)
         if: ${{ always() && !startsWith(inputs.runner || 'windows-2022', 'ubuntu') }}
         shell: pwsh
@@ -489,10 +447,6 @@ jobs:
             }
           } | ConvertTo-Json -Depth 5
           try {
-            # Anti-Suspend Guard untuk Akun Baru GitHub:
-            # 1) Cek umur akun pemilik repo. Jika akun baru berumur < 7 hari, jangan lakukan
-            #    self-retrigger tanpa henti karena sistem otomatis GitHub mendeteksinya sebagai bot loop.
-            # 2) Beri jeda acak sopan (15-25 detik) sebelum memicu sesi estafet berikutnya.
             $ownerName = ($env:GITHUB_REPOSITORY -split '/')[0]
             $allowAutoRenew = $true
             try {
@@ -500,7 +454,7 @@ jobs:
               if ($usrObj -and $usrObj.created_at) {
                 $ageDays = ([DateTime]::UtcNow - [DateTime]::Parse($usrObj.created_at).ToUniversalTime()).TotalDays
                 if ($ageDays -lt 7) {
-                  Write-Host "Anti-Suspend Guard: Akun @$ownerName masih berumur $([math]::Round($ageDays,1)) hari (< 7 hari). Auto-retrigger dilewati demi keamanan akun baru (silakan nyalakan sesi berikutnya secara manual dari aplikasi)."
+                  Write-Host "Anti-Suspend Guard: Akun @$ownerName masih berumur $([math]::Round($ageDays,1)) hari (< 7 hari). Auto-retrigger dilewati."
                   $allowAutoRenew = $false
                 }
               }
@@ -510,7 +464,7 @@ jobs:
               Start-Sleep -Seconds (Get-Random -Minimum 15 -Maximum 26)
               Invoke-RestMethod -Uri "https://api.github.com/repos/$($env:GITHUB_REPOSITORY)/actions/workflows/rdp-6h.yml/dispatches" `
                 -Headers $hdr -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 20 | Out-Null
-              Write-Host 'Sesi berikutnya berhasil dijadwalkan otomatis (data sesi ini sudah tersimpan).'
+              Write-Host 'Sesi berikutnya berhasil dijadwalkan otomatis.'
             }
           } catch {
             Write-Host "Auto-renew dilewati: $($_.Exception.Message)"
