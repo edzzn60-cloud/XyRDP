@@ -3,7 +3,7 @@ name: RdpFree - RDP 6 Jam
 on:
   workflow_dispatch:
     inputs:
-        hardware_name:
+      hardware_name:
         description: 'Rename tampilan CPU/GPU'
         required: false
         default: 'tidak'
