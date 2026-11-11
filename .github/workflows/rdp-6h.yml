@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       hardware_name:
-        description: 'Rename tampilan CPU/GPU'
+        description: 'Rename tampilan CPU/GPU (cosmetic)'
         required: false
         default: 'tidak'
         type: choice
@@ -12,16 +12,16 @@ on:
           - 'ya'
           - 'tidak'
       cpu_name:
-        description: 'Nama CPU'
+        description: 'Nama CPU pengganti'
         required: false
         default: 'Intel(R) Core(TM) i9-14900K @ 3.20GHz'
         type: string
       gpu_name:
-        description: 'Nama GPU'
+        description: 'Nama GPU pengganti'
         required: false
         default: 'NVIDIA GeForce RTX 4090'
         type: string
-        durasi_menit:
+      durasi_menit:
         description: 'Durasi sesi (menit, 10-360)'
         required: false
         default: '360'
