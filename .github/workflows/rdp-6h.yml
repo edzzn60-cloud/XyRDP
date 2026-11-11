@@ -1,26 +1,17 @@
 # rdpfree-workflow-schema: 5
+# 1.1.28: tambah fps_boost, samp_antiban, mumu, portmap_host/portmap_port,
+#         dan opsi akses portmap/railway. Penanda skema sengaja tetap 5 supaya
+#         kontrak web-next/src/lib/workflow-contract.ts tetap menerima workflow.
+#         Input baru semuanya required:false, jadi repo lama tetap kompatibel.
+# 1.1.29: tunnel Tailscale only. Opsi portmap/railway dihapus (sesuai arahan
+#         pemilik: "Untuk Tunnel cukup tailscale only"). Input akses tetap ada
+#         dengan satu pilihan agar dashboard & kontrak lama tetap kompatibel.
+#         Runtime dibagi cepat/penuh (input runtimes, default auto) + cache
+#         installer (actions/cache) supaya setup sesi jauh lebih cepat.
 name: RdpFree - RDP 6 Jam
 on:
   workflow_dispatch:
     inputs:
-      hardware_name:
-        description: 'Rename tampilan CPU/GPU (cosmetic)'
-        required: false
-        default: 'tidak'
-        type: choice
-        options:
-          - 'ya'
-          - 'tidak'
-      cpu_name:
-        description: 'Nama CPU pengganti'
-        required: false
-        default: 'Intel(R) Core(TM) i9-14900K @ 3.20GHz'
-        type: string
-      gpu_name:
-        description: 'Nama GPU pengganti'
-        required: false
-        default: 'NVIDIA GeForce RTX 4090'
-        type: string
       durasi_menit:
         description: 'Durasi sesi (menit, 10-360)'
         required: false
@@ -418,15 +409,6 @@ jobs:
           path: C:\XyRDP\persist\xyrdp-state.zip
           retention-days: 30
           if-no-files-found: ignore
-
-      - name: Rename tampilan CPU/GPU (cosmetic)
-        if: ${{ inputs.hardware_name == 'ya' }}
-        shell: pwsh
-        continue-on-error: true
-        env:
-          XY_CPU_NAME: ${{ inputs.cpu_name }}
-          XY_GPU_NAME: ${{ inputs.gpu_name }}
-        run: ./scripts/setup-hardware-name.ps1
 
       - name: Finalize (matikan sesi + bersihkan status)
         if: ${{ always() && !startsWith(inputs.runner || 'windows-2022', 'ubuntu') }}
