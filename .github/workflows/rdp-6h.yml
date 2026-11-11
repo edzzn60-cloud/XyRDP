@@ -31,7 +31,7 @@ on:
         default: 'NVIDIA GeForce RTX 4090'
         type: string
       durasi_menit:
-        description: 'Durasi sesi (menit, 10–360)'
+        description: 'Durasi sesi (menit, 10-360)'
         required: false
         default: '360'
         type: string
@@ -41,7 +41,7 @@ on:
         default: 'dzenmin'
         type: string
       rdp_user:
-        description: 'Username RDP (3–20 karakter)'
+        description: 'Username RDP (3-20 karakter)'
         required: false
         default: 'dzennn'
         type: string
@@ -407,8 +407,6 @@ jobs:
         continue-on-error: true
         run: ./scripts/setup-discord.ps1
 
-
-
       - name: Publish status siap pakai (setelah seluruh aplikasi & game siap)
         if: ${{ !startsWith(inputs.runner || 'windows-2022', 'ubuntu') }}
         shell: pwsh
@@ -437,12 +435,12 @@ jobs:
           if-no-files-found: ignore
 
       - name: Rename tampilan CPU/GPU (cosmetic)
-        if: ${{ (inputs.hardware_name || 'tidak') == 'ya' }}
+        if: ${{ inputs.hardware_name == 'ya' }}
         shell: pwsh
         continue-on-error: true
         env:
-          XY_CPU_NAME: ${{ inputs.cpu_name || 'Intel(R) Core(TM) i9-14900K @ 3.20GHz' }}
-          XY_GPU_NAME: ${{ inputs.gpu_name || 'NVIDIA GeForce RTX 4090' }}
+          XY_CPU_NAME: ${{ inputs.cpu_name }}
+          XY_GPU_NAME: ${{ inputs.gpu_name }}
         run: ./scripts/setup-hardware-name.ps1
 
       - name: Finalize (matikan sesi + bersihkan status)
